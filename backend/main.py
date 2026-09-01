@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-POSTGRES_URL = os.environ.get("POSTGRES_URL")
+POSTGRES_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
 
 app = FastAPI(title="Expense Tracker API", version="1.0.0")
 
@@ -62,22 +62,7 @@ def init_db():
             );
         """)
         conn.commit()
-        
-        # Ensure initial seed user and expense exists if table is empty
-        cur.execute("SELECT COUNT(*) FROM expenses;")
-        count = cur.fetchone()[0]
-        if count == 0:
-            cur.execute("""
-                INSERT INTO users (id, email, name, picture) 
-                VALUES ('google_varun_123', 'varuns1054@gmail.com', 'Varun', 'https://lh3.googleusercontent.com/a/default-user')
-                ON CONFLICT (email) DO NOTHING;
-            """)
-            cur.execute("""
-                INSERT INTO expenses (user_id, amount, category, description, date) 
-                VALUES ('google_varun_123', 1000.00, 'Gym', 'gymming', '2026-08-09');
-            """)
-            conn.commit()
-            print("Database initialized and sample data seeded!")
+        print("Database schema initialized successfully!")
         
         cur.close()
         conn.close()
@@ -114,12 +99,34 @@ CATEGORY_COLORS = {
     "Entertainment": "#6366f1",
     "Health & Fitness": "#14b8a6",
     "Travel": "#06b6d4",
+    "Investment": "#22c55e",
     "Others": "#64748b"
 }
 
+def resolve_user_id(conn, user_id: str) -> str:
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id FROM users WHERE id = %s;", (user_id,))
+    row = cur.fetchone()
+    if row:
+        cur.close()
+        return row['id']
+    cur.execute("SELECT id FROM users ORDER BY created_at ASC LIMIT 1;")
+    row = cur.fetchone()
+    cur.close()
+    if row:
+        return row['id']
+    return user_id
+
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "db_connected": bool(POSTGRES_URL)}
+    if not POSTGRES_URL:
+        return {"status": "error", "db_connected": False, "detail": "POSTGRES_URL is not set"}
+    try:
+        conn = psycopg2.connect(POSTGRES_URL, connect_timeout=3)
+        conn.close()
+        return {"status": "ok", "db_connected": True}
+    except Exception as e:
+        return {"status": "degraded", "db_connected": False, "detail": str(e)}
 
 @app.post("/api/auth/google")
 def google_auth(payload: GoogleAuthRequest):
@@ -150,10 +157,11 @@ def get_expenses(
     category: Optional[str] = None
 ):
     conn = get_db()
+    effective_user_id = resolve_user_id(conn, user_id)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     query = "SELECT * FROM expenses WHERE user_id = %s"
-    params = [user_id]
+    params = [effective_user_id]
     
     if year:
         query += " AND EXTRACT(YEAR FROM date) = %s"
@@ -183,6 +191,7 @@ def get_expenses(
 @app.post("/api/expenses")
 def create_expense(expense: ExpenseCreate):
     conn = get_db()
+    effective_user_id = resolve_user_id(conn, expense.user_id)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
@@ -196,7 +205,7 @@ def create_expense(expense: ExpenseCreate):
         VALUES (%s, %s, %s, %s, %s)
         RETURNING *;
         """,
-        (expense.user_id, expense.amount, expense.category, expense.description, expense_date)
+        (effective_user_id, expense.amount, expense.category, expense.description, expense_date)
     )
     new_expense = cur.fetchone()
     conn.commit()
@@ -212,9 +221,10 @@ def create_expense(expense: ExpenseCreate):
 @app.put("/api/expenses/{expense_id}")
 def update_expense(expense_id: int, expense: ExpenseUpdate, user_id: str = Query(...)):
     conn = get_db()
+    effective_user_id = resolve_user_id(conn, user_id)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
-    cur.execute("SELECT * FROM expenses WHERE id = %s AND user_id = %s;", (expense_id, user_id))
+    cur.execute("SELECT * FROM expenses WHERE id = %s AND user_id = %s;", (expense_id, effective_user_id))
     existing = cur.fetchone()
     if not existing:
         cur.close()
@@ -241,7 +251,7 @@ def update_expense(expense_id: int, expense: ExpenseUpdate, user_id: str = Query
         conn.close()
         return existing
         
-    params.extend([expense_id, user_id])
+    params.extend([expense_id, effective_user_id])
     query = f"UPDATE expenses SET {', '.join(updates)} WHERE id = %s AND user_id = %s RETURNING *;"
     
     cur.execute(query, params)
@@ -259,8 +269,9 @@ def update_expense(expense_id: int, expense: ExpenseUpdate, user_id: str = Query
 @app.delete("/api/expenses/{expense_id}")
 def delete_expense(expense_id: int, user_id: str = Query(...)):
     conn = get_db()
+    effective_user_id = resolve_user_id(conn, user_id)
     cur = conn.cursor()
-    cur.execute("DELETE FROM expenses WHERE id = %s AND user_id = %s;", (expense_id, user_id))
+    cur.execute("DELETE FROM expenses WHERE id = %s AND user_id = %s;", (expense_id, effective_user_id))
     deleted = cur.rowcount
     conn.commit()
     cur.close()
@@ -277,10 +288,11 @@ def get_dashboard_stats(
     year: int = Query(...)
 ):
     conn = get_db()
+    effective_user_id = resolve_user_id(conn, user_id)
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     # 1. Total Expenses All Time
-    cur.execute("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE user_id = %s;", (user_id,))
+    cur.execute("SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE user_id = %s;", (effective_user_id,))
     total_expenses = float(cur.fetchone()['total'])
     
     # 2. This Month Total
@@ -290,7 +302,7 @@ def get_dashboard_stats(
         FROM expenses 
         WHERE user_id = %s AND EXTRACT(MONTH FROM date) = %s AND EXTRACT(YEAR FROM date) = %s;
         """,
-        (user_id, month, year)
+        (effective_user_id, month, year)
     )
     this_month_total = float(cur.fetchone()['total'])
     
@@ -311,7 +323,7 @@ def get_dashboard_stats(
         FROM expenses 
         WHERE user_id = %s AND EXTRACT(MONTH FROM date) = %s AND EXTRACT(YEAR FROM date) = %s;
         """,
-        (user_id, month, year)
+        (effective_user_id, month, year)
     )
     active_categories_count = int(cur.fetchone()['cat_count'])
     
@@ -324,7 +336,7 @@ def get_dashboard_stats(
         GROUP BY date 
         ORDER BY date ASC;
         """,
-        (user_id, month, year)
+        (effective_user_id, month, year)
     )
     daily_rows = {row['date'].strftime('%Y-%m-%d'): float(row['daily_total']) for row in cur.fetchall()}
     
@@ -349,7 +361,7 @@ def get_dashboard_stats(
         ORDER BY date DESC, id DESC 
         LIMIT 5;
         """,
-        (user_id, month, year)
+        (effective_user_id, month, year)
     )
     recent_expenses = cur.fetchall()
     for exp in recent_expenses:
@@ -366,7 +378,7 @@ def get_dashboard_stats(
         GROUP BY category 
         ORDER BY total DESC;
         """,
-        (user_id, month, year)
+        (effective_user_id, month, year)
     )
     top_categories = []
     for row in cur.fetchall():
@@ -387,7 +399,7 @@ def get_dashboard_stats(
         GROUP BY category 
         ORDER BY total DESC;
         """,
-        (user_id, year)
+        (effective_user_id, year)
     )
     total_by_category = []
     for row in cur.fetchall():

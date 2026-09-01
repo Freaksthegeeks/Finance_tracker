@@ -43,6 +43,7 @@ const CATEGORIES = [
   "Entertainment",
   "Health & Fitness",
   "Travel",
+  "Investment",
   "Others"
 ];
 
@@ -55,6 +56,7 @@ const CATEGORY_COLORS = {
   "Entertainment": "#6366f1",
   "Health & Fitness": "#14b8a6",
   "Travel": "#06b6d4",
+  "Investment": "#22c55e",
   "Others": "#64748b"
 };
 
@@ -67,10 +69,12 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authEmailInput, setAuthEmailInput] = useState('');
 
+  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+
   // App control state
   const [activeTab, setActiveTab] = useState('add'); // 'dashboard', 'add', 'all'
-  const [selectedYear, setSelectedYear] = useState(2026);
-  const [selectedMonth, setSelectedMonth] = useState(8); // August (1-indexed)
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth() + 1); // Current month (1-indexed)
   const [hideAmounts, setHideAmounts] = useState(false);
 
   // Stats & Expenses state
@@ -85,7 +89,7 @@ export default function App() {
     amount: '',
     category: 'Gym',
     description: '',
-    date: '2026-08-09'
+    date: new Date().toISOString().split('T')[0]
   });
 
   // Edit Expense Modal
@@ -111,7 +115,7 @@ export default function App() {
 
       // Expenses List
       const resExpenses = await fetch(
-        `${API_BASE}/expenses?user_id=${user.id}&year=${selectedYear}`
+        `${API_BASE}/expenses?user_id=${user.id}`
       );
       if (resExpenses.ok) {
         const listData = await resExpenses.json();
@@ -184,7 +188,14 @@ export default function App() {
       });
       if (res.ok) {
         setSuccessMsg("Expense added successfully!");
-        setFormData({ amount: '', category: 'Gym', description: '', date: '2026-08-09' });
+        if (formData.date) {
+          const parts = formData.date.split('-');
+          if (parts.length === 3) {
+            setSelectedYear(parseInt(parts[0], 10));
+            setSelectedMonth(parseInt(parts[1], 10));
+          }
+        }
+        setFormData({ amount: '', category: 'Gym', description: '', date: getTodayDateString() });
         setTimeout(() => setSuccessMsg(''), 3000);
         fetchData();
       } else {
