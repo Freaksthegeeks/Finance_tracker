@@ -16,7 +16,7 @@ RUN npm run build
 # Stage 2: Serve React App with Nginx
 FROM nginx:alpine
 
-ENV BACKEND_URL=http://backend:8000/api/
+ENV BACKEND_URL=http://backend:8000
 ENV NGINX_ENVSUBST_FILTER=BACKEND_URL
 
 COPY --from=build /app/dist /usr/share/nginx/html
