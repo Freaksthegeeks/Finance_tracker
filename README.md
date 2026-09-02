@@ -59,9 +59,24 @@ Finance_Tracker/
 
 ### Prerequisites
 
+- **Docker & Docker Compose** (optional, for containerized execution)
 - **Node.js** (v18+ recommended) & **npm**
 - **Python** (v3.8+ recommended) & **pip**
 - **PostgreSQL Database URL** (configured in `.env`)
+
+---
+
+### 🐋 Running with Docker (Recommended)
+
+1. Ensure your `.env` file is created in the root directory with `POSTGRES_URL`.
+2. Build and start containers:
+   ```bash
+   docker compose up --build
+   ```
+3. Access services:
+   - 🌐 **Frontend**: [http://localhost:3000](http://localhost:3000)
+   - ⚡ **Backend API**: [http://localhost:8000](http://localhost:8000)
+   - 🔗 **Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
