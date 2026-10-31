@@ -100,6 +100,7 @@ CATEGORY_COLORS = {
     "Health & Fitness": "#14b8a6",
     "Travel": "#06b6d4",
     "Investment": "#22c55e",
+    "Education": "#0ea5e9",
     "Others": "#64748b"
 }
 
