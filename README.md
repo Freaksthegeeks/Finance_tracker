@@ -1,153 +1,159 @@
-# 💸 Expense Tracker
+# Finance Tracker
 
-A modern, full-stack Expense Tracker web application built with **React**, **FastAPI**, and a **Real-Time Supabase PostgreSQL Database**. It enables users to track, analyze, and manage spending habits with an intuitive interface and visual charts.
+A finance tracker with a React web frontend, a Flutter mobile app for Android and iOS, and a shared FastAPI backend backed by PostgreSQL. Both clients use the same expense data.
 
----
+## Features
 
-## 🌟 Key Features
+- Dashboard with all-time spending, monthly spending, daily average, and active category totals.
+- Daily spending chart, recent expenses, and monthly and yearly category breakdowns.
+- Add, edit, and delete expenses with amount, category, description, and date.
+- Search and category filters, plus month and year selection.
+- Amount privacy toggle and Indian rupee formatting.
+- Mobile navigation, pull-to-refresh, and foreground refresh every 15 seconds.
+- Mobile opens directly into the tracker without login or Google authentication.
 
-- ⚡ **Real-Time PostgreSQL DB**: Powered by Supabase PostgreSQL configured directly via `.env` (`POSTGRES_URL`).
-- 📊 **Interactive Dashboard**:
-  - **4 Stat Cards**: *Total Expenses*, *This Month Spending*, *Daily Average*, and *Active Categories*.
-  - **Daily Spending Pattern**: Smooth interactive area chart (using Recharts) mapping spending trends throughout the selected month.
-  - **Recent Expenses & Top Categories**: Real-time breakdown of latest transactions and top spending categories.
-  - **Yearly Category Breakdown**: Summary card with a quick *"View all"* filter trigger.
-- 👁️ **Privacy Toggle**: Hide or reveal dollar/rupee figures across all stat cards with a single click.
-- ➕ **Add New Expense**:
-  - Form with input validation for Amount, Category, Description, and Date.
-  - Quick feedback messages and category icons.
-- 📋 **All Expenses Management**:
-  - Comprehensive expenses table with real-time search filtering by description or category.
-  - Interactive **Edit Modal** and **Delete** actions synced directly to the PostgreSQL database.
-- 📅 **Flexible Month & Year Filtering**: Switch seamlessly between months and years to inspect historical spending data.
-
----
-
-## 🛠️ Technology Stack
-
-| Layer | Technology |
-| :--- | :--- |
-| **Frontend** | React (Vite), Lucide Icons, Recharts, Custom CSS Design System |
-| **Backend** | Python 3, FastAPI, Uvicorn, Pydantic |
-| **Database** | PostgreSQL (Supabase) via `psycopg2` driver |
-| **Environment** | `.env` configuration for DB string (`POSTGRES_URL`) |
-
----
-
-## 📂 Project Structure
+## Project structure
 
 ```text
 Finance_Tracker/
-├── backend/
-│   └── main.py              # FastAPI server, REST API, & database operations
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx          # Main UI application (Dashboard, Add Expense, All Expenses)
-│   │   ├── index.css        # Styled design system matching exact screenshots
-│   │   └── main.jsx         # React application entry point
-│   ├── package.json         # Frontend package dependencies
-│   └── vite.config.js       # Vite configuration
-├── .env                     # Supabase PostgreSQL database URL configuration
-├── .gitignore               # Ignored files (secrets, venv, node_modules, build)
-├── requirements.txt         # Python backend dependencies
-└── README.md                # Project documentation
+├── backend/                 # FastAPI routes and PostgreSQL operations
+├── frontend/                # React / Vite web app
+├── mobile/
+│   ├── android/             # Android project
+│   ├── ios/                 # iOS project
+│   ├── assets/              # Public endpoint configuration and bundled fonts
+│   ├── lib/                 # API client, models, state, and Flutter screens
+│   ├── test/                # API and widget tests
+│   └── tool/configure.dart  # Extracts PUBLIC_URL from the root .env
+├── .env.example             # Environment configuration template
+├── docker-compose.yml       # Backend and web frontend containers
+├── requirements.txt         # Backend dependencies
+└── README.md
 ```
 
----
+## Configuration
 
-## 🚀 Getting Started
+Copy `.env.example` to `.env` in the repository root and set:
 
-### Prerequisites
-
-- **Docker & Docker Compose** (optional, for containerized execution)
-- **Node.js** (v18+ recommended) & **npm**
-- **Python** (v3.8+ recommended) & **pip**
-- **PostgreSQL Database URL** (configured in `.env`)
-
----
-
-### 🐋 Running with Docker (Recommended)
-
-1. Ensure your `.env` file is created in the root directory with `POSTGRES_URL`.
-2. Build and start containers:
-   ```bash
-   docker compose up --build
-   ```
-3. Access services:
-   - 🌐 **Frontend**: [http://localhost:3000](http://localhost:3000)
-   - ⚡ **Backend API**: [http://localhost:8000](http://localhost:8000)
-   - 🔗 **Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-
----
-
-### 1. Database Configuration (`.env`)
-
-Ensure the `.env` file in the root directory contains your Supabase PostgreSQL connection string:
-
-```env
+```dotenv
 POSTGRES_URL=postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
+PUBLIC_URL=https://your-backend.example.com
 ```
 
----
+`POSTGRES_URL` is the server-side PostgreSQL connection string. `PUBLIC_URL` is the backend's public origin used by the mobile app. Use an address reachable from the phone; `localhost` on a phone refers to the phone itself.
 
-### 2. Start the Backend API
+The mobile configuration tool copies only `PUBLIC_URL` into `mobile/assets/public_config.json`. The API client adds `/api` when needed. Run the tool again and rebuild after changing the backend URL. The generated public configuration is versioned; database credentials and the root `.env` are excluded from Git and the mobile bundle.
 
-1. Navigate to the `backend` directory:
-   ```bash
-   cd backend
-   ```
-2. Install Python dependencies:
-   ```bash
-   pip install -r ../requirements.txt
-   ```
-3. Start the FastAPI server:
-   ```bash
-   python -m uvicorn main:app --reload --port 8000
-   ```
-4. Backend API interactive documentation will be live at:
-   - 🔗 **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+## Run the mobile app
 
----
+Install Flutter compatible with the Dart SDK constraint in [mobile/pubspec.yaml](mobile/pubspec.yaml), and connect an Android device or start an emulator. The app was built with Flutter 3.47.8 and Dart 3.13.7.
 
-### 3. Start the Frontend Application
+From the repository root:
 
-1. Open a new terminal and navigate to the `frontend` directory:
-   ```bash
-   cd frontend
-   ```
-2. Install Node dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Vite development server:
-   ```bash
-   npm run dev
-   ```
-4. Access the web app in your browser:
-   - 🌐 **Web App**: [http://localhost:5173](http://localhost:5173)
+```sh
+cd mobile
+dart tool/configure.dart
+flutter pub get
+flutter run
+```
 
----
+The mobile app does not call an authentication endpoint. It uses `google_varun_123`, the existing web frontend's default profile ID, to access the same expenses. This is an existing record identifier. To use another existing backend profile:
 
-## 📝 API Endpoints Summary
+```sh
+flutter run --dart-define=TRACKER_USER_ID=your_existing_user_id
+```
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/health` | Health check & DB connection status |
-| `POST` | `/api/auth/google` | Google authentication & user profile sync |
-| `GET` | `/api/dashboard/stats` | Fetches aggregated statistics & chart data |
-| `GET` | `/api/expenses` | Fetches expenses list filtered by user, month, & year |
-| `POST` | `/api/expenses` | Adds a new expense record to PostgreSQL |
-| `PUT` | `/api/expenses/{id}` | Updates an existing expense |
-| `DELETE` | `/api/expenses/{id}` | Deletes an expense record |
+The current backend falls back to its first user when an unknown ID is supplied, so use the exact profile ID when selecting another profile.
 
----
+### Check and build
 
-## 🎨 Design & Aesthetics
+From `mobile`:
 
-The application layout has been created to replicate the clean UI design from the provided reference screenshots:
-- Soft off-white background (`#f6f8fa`) with crisp rounded white cards (`#ffffff`).
-- Sage green primary action button (`#5c9c84`).
-- Rounded pill badge navigation tabs (`Dashboard`, `Add Expense`, `All Expenses`).
-- Custom typography using *Plus Jakarta Sans* / *Inter*.
+```sh
+flutter analyze
+flutter test
+dart tool/configure.dart
+flutter build apk --debug
+```
 
----
+The installable debug APK is generated at `mobile/build/app/outputs/flutter-apk/app-debug.apk` relative to the repository root. Android builds need a configured Android SDK and compatible JDK. Kotlin incremental compilation is disabled because the project and package cache can reside on different Windows drives.
+
+Release distribution requires your signing configuration; the Android scaffold currently uses debug signing for release builds. iOS builds require macOS, Xcode, and the appropriate signing setup:
+
+```sh
+flutter build ios --no-codesign
+```
+
+API and widget tests use a mock HTTP backend without changing the live database. They cover request payloads, refresh races, errors, startup without authentication, privacy, search, validation, add/edit/delete, and narrow mobile layouts. Capture screen previews with:
+
+```sh
+flutter test test/app_test.dart --dart-define=CAPTURE_SCREENSHOTS=true
+```
+
+Previews are written to `mobile/build/screenshots`. Device launch and iOS signing still require testing on the target platforms. See [mobile/README.md](mobile/README.md) for more details.
+
+## Run the web app and backend
+
+### Docker Compose
+
+With Docker installed and `.env` configured, run from the repository root:
+
+```sh
+docker compose up --build
+```
+
+- Web app: <http://localhost:3000>
+- Backend: <http://localhost:8000>
+- API docs: <http://localhost:8000/docs>
+
+Compose runs the web frontend and backend. Run the Flutter app separately using the mobile instructions above.
+
+### Local development
+
+With Python, Node.js, and npm installed, start the backend from the repository root so it can load the root `.env`:
+
+```sh
+python -m venv venv
+```
+
+Activate the environment with `venv\Scripts\Activate.ps1` in PowerShell, or `source venv/bin/activate` on macOS/Linux, then run:
+
+```sh
+python -m pip install -r requirements.txt
+python -m uvicorn backend.main:app --reload --port 8000
+```
+
+In another terminal, start the web frontend:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+The web app runs at <http://localhost:5173> and defaults to `http://localhost:8000/api`. Set `VITE_API_BASE_URL` in `frontend/.env.local` to use a different backend, including the `/api` suffix. The frontend uses Vite configuration separately from the mobile app's `PUBLIC_URL`.
+
+Web checks:
+
+```sh
+npm run lint
+npm run build
+```
+
+## API
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/health` | Backend and database health |
+| GET | `/api/dashboard/stats` | Statistics for `user_id`, `month`, and `year` |
+| GET | `/api/expenses` | Expenses for `user_id`, with optional month, year, and category filters |
+| POST | `/api/expenses` | Create an expense, including `user_id` in the body |
+| PUT | `/api/expenses/{id}` | Update an expense with `user_id` in the query |
+| DELETE | `/api/expenses/{id}` | Delete an expense with `user_id` in the query |
+| POST | `/api/auth/google` | Existing web profile lookup/creation endpoint; unused by mobile |
+
+The existing profile endpoint accepts an email; it does not verify Google credentials. The mobile application follows the backend's current user-ID-based contract.
+
+## Files in Git
+
+Commit application source, native project files, font licenses, public mobile configuration, and dependency lockfiles (`frontend/package-lock.json` and `mobile/pubspec.lock`). Ignore local environment files, signing credentials, dependency caches, generated native files, test coverage, and build output. See [.gitignore](.gitignore) and the platform-specific ignore files under `mobile`.

@@ -1,7 +1,10 @@
 # Environment variables & secrets
 .env
+.env.*
 *.env
 *.env.local
+!.env.example
+!.env.*.example
 
 # Python virtual environment & bytecode
 venv/
@@ -12,6 +15,9 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.venv/
+.mypy_cache/
+.ruff_cache/
 
 # Node dependencies & build output
 node_modules/
@@ -20,6 +26,45 @@ dist/
 frontend/dist/
 build/
 .next/
+coverage/
+
+# Flutter / Dart caches and generated output
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+.widget_preview/
+*.iml
+*.ipr
+*.iws
+app.*.symbols
+app.*.map.json
+
+# Android local configuration, caches, and signing credentials
+.gradle/
+.kotlin/
+.cxx/
+/mobile/android/local.properties
+/mobile/android/key.properties
+*.jks
+*.keystore
+
+# iOS dependencies, local Xcode state, and signing credentials
+Pods/
+.symlinks/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.p12
+*.mobileprovision
+*.xcarchive/
+*.dSYM/
+
+# Packaged application artifacts
+*.apk
+*.aab
+*.ipa
 
 # Logs
 *.log
