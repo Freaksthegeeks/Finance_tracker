@@ -36,6 +36,9 @@ class TestBackend {
       AppConfig('https://example.com'),
       client: MockClient((request) async {
         requests.add(request);
+        if (request.url.path.endsWith('/health')) {
+          return http.Response('{"status":"ok","db_connected":true}', 200);
+        }
         if (request.method == 'POST') {
           expenses.add({
             ...jsonDecode(request.body) as Map<String, dynamic>,

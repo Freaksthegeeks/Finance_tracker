@@ -101,6 +101,9 @@ void main() {
     final api = TrackerApi(
       AppConfig('https://example.com'),
       client: MockClient((request) async {
+        if (request.url.path.endsWith('/health')) {
+          return http.Response('{"status":"ok","db_connected":true}', 200);
+        }
         if (request.url.path.endsWith('/expenses')) {
           return http.Response('[]', 200);
         }
@@ -127,6 +130,9 @@ void main() {
         TrackerApi(
           AppConfig('https://example.com'),
           client: MockClient((request) async {
+            if (request.url.path.endsWith('/health')) {
+              return http.Response('{"status":"ok","db_connected":true}', 200);
+            }
             if (fail) return http.Response('{}', 503);
             return http.Response(
               request.url.path.endsWith('/expenses')

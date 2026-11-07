@@ -24,10 +24,15 @@ class TrackerApi {
     String path, {
     Map<String, String>? query,
     Map<String, dynamic>? body,
+    Duration timeout = const Duration(seconds: 60),
+    Future<void>? abortTrigger,
   }) async {
     final uri = config.apiBase.resolve(path).replace(queryParameters: query);
-    final request = http.Request(method, uri)
-      ..headers['Accept'] = 'application/json';
+    final request = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abortTrigger,
+    )..headers['Accept'] = 'application/json';
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -35,19 +40,23 @@ class TrackerApi {
     try {
       final response = await (() async => http.Response.fromStream(
         await _client.send(request),
-      ))().timeout(const Duration(seconds: 60));
+      ))().timeout(timeout);
       dynamic payload;
       try {
         payload = jsonDecode(response.body);
       } on FormatException {
         throw ApiException(
-          'The server returned an unexpected response (${response.statusCode}). Please try again.',
+          method == 'GET'
+              ? 'The server returned an unexpected response (${response.statusCode}). Please try again.'
+              : 'The server returned an unexpected response. Refresh before retrying; the change may have been saved.',
         );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (response.statusCode >= 500) {
-          throw const ApiException(
-            'The server is temporarily unavailable. Please try again.',
+          throw ApiException(
+            method == 'GET'
+                ? 'The server is temporarily unavailable. Please try again.'
+                : 'The server could not confirm the change. Refresh before retrying; it may have been saved.',
           );
         }
         final detail = payload is Map ? payload['detail'] : null;
@@ -65,10 +74,27 @@ class TrackerApi {
             : 'The request timed out. Refresh your expenses before retrying; the change may have been saved.',
       );
     } on http.ClientException {
-      throw const ApiException(
-        'Cannot reach the server. Check your connection and try again.',
+      throw ApiException(
+        method == 'GET'
+            ? 'Cannot reach the server. Check your connection and try again.'
+            : 'Connection interrupted. Refresh before retrying; the change may have been saved.',
       );
     }
+  }
+
+  Future<bool> health({
+    Duration timeout = const Duration(seconds: 15),
+    Future<void>? abortTrigger,
+  }) async {
+    final payload = await _request(
+      'GET',
+      'health',
+      timeout: timeout,
+      abortTrigger: abortTrigger,
+    );
+    return payload is Map &&
+        payload['status'] == 'ok' &&
+        payload['db_connected'] == true;
   }
 
   Future<DashboardStats> stats(DateTime period) async =>

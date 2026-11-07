@@ -4,15 +4,18 @@ import 'package:intl/intl.dart';
 
 import '../api.dart';
 import '../models.dart';
+import '../tracker_controller.dart';
 import 'theme.dart';
 
 class ExpenseForm extends StatefulWidget {
   final Expense? expense;
+  final TrackerController? controller;
   final Future<void> Function(ExpenseDraft) onSave;
   final VoidCallback? onSaved;
   const ExpenseForm({
     super.key,
     this.expense,
+    this.controller,
     required this.onSave,
     this.onSaved,
   });
@@ -87,7 +90,9 @@ class _ExpenseFormState extends State<ExpenseForm> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            widget.expense == null
+            widget.controller?.error?.startsWith('Expense saved;') == true
+                ? 'Expense saved; refresh failed. Pull down to retry.'
+                : widget.expense == null
                 ? 'Expense added successfully'
                 : 'Expense updated successfully',
           ),
@@ -251,13 +256,19 @@ class _ExpenseFormState extends State<ExpenseForm> {
                               ? Icons.add_rounded
                               : Icons.check_rounded,
                         ),
-                  label: Text(
-                    _saving
-                        ? 'Saving…'
-                        : widget.expense == null
-                        ? 'Add Expense'
-                        : 'Save Changes',
-                  ),
+                  label: _saving && widget.controller != null
+                      ? ListenableBuilder(
+                          listenable: widget.controller!,
+                          builder: (context, _) =>
+                              Text(widget.controller!.savingLabel),
+                        )
+                      : Text(
+                          _saving
+                              ? 'Saving…'
+                              : widget.expense == null
+                              ? 'Add Expense'
+                              : 'Save Changes',
+                        ),
                 ),
               ),
               const SizedBox(height: 16),

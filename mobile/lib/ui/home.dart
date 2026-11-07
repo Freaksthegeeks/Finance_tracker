@@ -34,7 +34,7 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(c.refresh());
+    unawaited(c.start());
     _timer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (_active) unawaited(c.refresh(background: true));
     });
@@ -43,7 +43,7 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _active = state == AppLifecycleState.resumed;
-    if (_active) unawaited(c.refresh(background: true));
+    unawaited(c.setActive(_active));
   }
 
   @override
@@ -157,6 +157,7 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
                   constraints: const BoxConstraints(maxWidth: 640),
                   child: Panel(
                     child: ExpenseForm(
+                      controller: c,
                       expense: expense,
                       onSave: (draft) => c.save(draft, id: expense.id),
                       onSaved: () => Navigator.pop(context),
@@ -326,6 +327,19 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
                   const LinearProgressIndicator(minHeight: 2)
                 else
                   const SizedBox(height: 2),
+                if (c.backendState == BackendState.connecting ||
+                    (c.stale && c.updatedAt != null))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${c.backendState == BackendState.connecting ? 'Connecting to server… ' : ''}'
+                        '${c.updatedAt == null ? '' : 'Showing saved data · Last updated ${DateFormat('dd MMM, HH:mm').format(c.updatedAt!.toLocal())}'}',
+                        style: const TextStyle(color: muted, fontSize: 12),
+                      ),
+                    ),
+                  ),
                 if (c.error != null)
                   Container(
                     width: double.infinity,
@@ -362,17 +376,26 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
                       _scroll(_dashboard()),
                       _scroll([
                         Panel(
-                          child: ExpenseForm(onSave: (draft) => c.save(draft)),
+                          child: ExpenseForm(
+                            controller: c,
+                            onSave: (draft) => c.save(draft),
+                          ),
                         ),
                         const SizedBox(height: 20),
-                        const Row(
+                        Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.sync_rounded, size: 16, color: sage),
-                            SizedBox(width: 8),
+                            const Icon(
+                              Icons.sync_rounded,
+                              size: 16,
+                              color: sage,
+                            ),
+                            const SizedBox(width: 8),
                             Flexible(
                               child: Text(
-                                'Synced with your web tracker',
+                                c.stale
+                                    ? 'Waiting to sync with your web tracker'
+                                    : 'Synced with your web tracker',
                                 style: TextStyle(color: muted, fontSize: 12),
                               ),
                             ),

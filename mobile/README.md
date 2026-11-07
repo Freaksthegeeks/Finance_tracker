@@ -4,6 +4,16 @@ Flutter application for Android and iOS, based on `../frontend`. Opens directly 
 
 Includes dashboard totals, interactive daily spending chart, recent expenses, monthly and yearly category breakdowns, amount privacy, adding expenses, searching/filtering history, editing, and confirmed deletion. Pull down to refresh; foreground data also refreshes every 15 seconds. Amount privacy is saved on the device.
 
+## Cached startup and Render wake-up
+
+Opening the app or returning to it immediately requests `/api/health` at the configured public backend URL. The UI opens without waiting for the server. Saved expenses and dashboard totals appear from an on-device cache while the app connects; a status line shows when those values were last refreshed. Successful server reads automatically replace the displayed data and update the cache. First-time installs have no saved data yet.
+
+Health checks retry for up to two minutes, using 15-second request timeouts and delays of 2, 4, 8, then 10 seconds. The backend is ready only when health reports `status: ok` and `db_connected: true`. Retries pause when the app is inactive, and opening the app again checks readiness. The app never needs to open the website in a browser.
+
+You can enter details while the backend wakes. Save keeps the form filled and shows “Connecting… Saving expense.”, followed by “Saving expense…”. A write is sent once after readiness, and the form clears only after the server confirms success. Connection failures retain the fields for a manual retry. After an uncertain write timeout, refresh before retrying because the change may already have saved. Confirmed writes remain successful even if refreshing the dashboard afterward fails.
+
+The cache is isolated by backend URL and profile and stores expenses plus the last 12 refreshed dashboard periods. Privacy preferences apply before cached amounts are displayed. Cache problems do not block network use. There is no offline write queue or draft recovery after the app is force-closed.
+
 ## Run
 
 From this folder, with Flutter installed and an emulator or phone connected:
@@ -41,7 +51,7 @@ flutter pub get
 flutter build ios --no-codesign
 ```
 
-Automated tests use an in-memory HTTP backend, never the live database. They cover API ownership/payloads, out-of-order refreshes, failures, no-auth startup, privacy, search, form validation, add/edit/delete, and narrow screen layout. Optional screenshots:
+Automated tests use an in-memory HTTP backend, never the live database. They cover API ownership/payloads, out-of-order refreshes, cached startup, profile isolation, cold-start retries, confirmed writes, failures, no-auth startup, privacy, search, form validation, add/edit/delete, and narrow screen layout. Optional screenshots:
 
 ```powershell
 flutter test test/app_test.dart --dart-define=CAPTURE_SCREENSHOTS=true

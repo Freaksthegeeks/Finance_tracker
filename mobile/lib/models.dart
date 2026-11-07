@@ -38,6 +38,13 @@ class Expense {
     required this.description,
     required this.date,
   });
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'amount': amount,
+    'category': category,
+    'description': description,
+    'date': dateValue(date),
+  };
   factory Expense.fromJson(Map<String, dynamic> json) => Expense(
     id: json['id'] as int,
     amount: number(json['amount']),
@@ -103,6 +110,26 @@ class DashboardStats {
     required this.topCategories,
     required this.yearlyCategories,
   });
+  Map<String, dynamic> toJson() => {
+    'total_expenses': total,
+    'this_month': monthly,
+    'daily_average': dailyAverage,
+    'active_categories': activeCategories,
+    'daily_pattern': dailyPattern
+        .map((p) => {'day': p.label, 'amount': p.amount})
+        .toList(),
+    'recent_expenses': recent.map((e) => e.toJson()).toList(),
+    'top_categories': topCategories
+        .map(
+          (c) => {'category': c.category, 'total': c.total, 'count': c.count},
+        )
+        .toList(),
+    'total_by_category': yearlyCategories
+        .map(
+          (c) => {'category': c.category, 'total': c.total, 'count': c.count},
+        )
+        .toList(),
+  };
   factory DashboardStats.fromJson(Map<String, dynamic> json) => DashboardStats(
     total: number(json['total_expenses']),
     monthly: number(json['this_month']),

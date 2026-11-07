@@ -11,7 +11,6 @@ Future<void> main() async {
   try {
     final config = await AppConfig.load();
     final controller = TrackerController(TrackerApi(config));
-    await controller.restorePrivacy();
     runApp(FinanceTrackerApp(controller: controller));
   } catch (_) {
     runApp(
