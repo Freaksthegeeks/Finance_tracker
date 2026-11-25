@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Loans, { LoanSummary } from './Loans';
+import useLoans from './useLoans';
 import { 
   DollarSign, 
   Eye, 
@@ -68,8 +70,9 @@ export default function App() {
     const saved = localStorage.getItem('expense_tracker_user');
     return saved ? JSON.parse(saved) : { email: 'varuns1054@gmail.com', name: 'Varun', id: 'google_varun_123' };
   });
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [, setShowAuthModal] = useState(false);
   const [authEmailInput, setAuthEmailInput] = useState('');
+  const ledger = useLoans(API_BASE, user?.id);
 
   const getTodayDateString = () => new Date().toISOString().split('T')[0];
 
@@ -102,7 +105,7 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState('All');
 
   // Fetch Dashboard Stats & All Expenses
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
@@ -128,14 +131,14 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, selectedMonth, selectedYear]);
 
   useEffect(() => {
     fetchData();
     // Real-time polling every 6 seconds
     const interval = setInterval(fetchData, 6000);
     return () => clearInterval(interval);
-  }, [user, selectedMonth, selectedYear]);
+  }, [fetchData]);
 
   // Handle Google Login
   const handleGoogleLogin = async (emailToLogin) => {
@@ -205,6 +208,7 @@ export default function App() {
         setErrorMsg(err.detail || "Failed to add expense");
       }
     } catch (err) {
+      console.error('Could not save expense:', err);
       setErrorMsg("Network error trying to save expense.");
     }
   };
@@ -421,11 +425,17 @@ export default function App() {
         >
           All Expenses
         </button>
+        <button className={`tab-btn ${activeTab === 'loans' ? 'active' : ''}`} onClick={() => setActiveTab('loans')}>
+          Borrow &amp; Lend
+        </button>
       </nav>
+
+      {activeTab === 'loans' && <Loans key={user.id} ledger={ledger} formatMoney={formatMoney} />}
 
       {/* TAB 1: DASHBOARD */}
       {activeTab === 'dashboard' && (
         <div>
+          <LoanSummary ledger={ledger} formatMoney={formatMoney} onManage={() => setActiveTab('loans')} />
           {/* Daily Spending Pattern Chart */}
           <div className="content-card">
             <h2 className="card-title">Daily Spending Pattern</h2>

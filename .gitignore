@@ -1,7 +1,10 @@
 # Environment variables & secrets
 .env
+.env.*
 *.env
 *.env.local
+!.env.example
+!.env.*.example
 
 # Python virtual environment & bytecode
 venv/
@@ -12,6 +15,18 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Test reports and coverage data
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+lcov.info
 
 # Node dependencies & build output
 node_modules/
@@ -20,6 +35,61 @@ dist/
 frontend/dist/
 build/
 .next/
+coverage/
+
+# Flutter / Dart caches and generated output
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+.widget_preview/
+*.iml
+*.ipr
+*.iws
+app.*.symbols
+app.*.map.json
+
+# Android local configuration, caches, and signing credentials
+.gradle/
+.kotlin/
+.cxx/
+/mobile/android/local.properties
+/mobile/android/key.properties
+*.jks
+*.keystore
+
+# iOS dependencies, local Xcode state, and signing credentials
+Pods/
+.symlinks/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.p12
+*.mobileprovision
+*.xcarchive/
+*.dSYM/
+
+# Packaged application artifacts
+*.apk
+*.aab
+*.ipa
+
+# Local financial data and database backups (keep schema/migration SQL versioned)
+/backups/
+/exports/
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# JVM crash dumps from Android builds
+*.hprof
+*.mdmp
 
 # Logs
 *.log

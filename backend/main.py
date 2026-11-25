@@ -2,9 +2,11 @@ import os
 from datetime import datetime, date, timedelta
 import calendar
 from typing import Optional, List
+from typing import Literal
+from decimal import Decimal
 from fastapi import FastAPI, HTTPException, Query, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
@@ -60,6 +62,20 @@ def init_db():
                 date DATE NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS loans (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                person VARCHAR(100) NOT NULL,
+                direction VARCHAR(8) NOT NULL CHECK (direction IN ('borrowed', 'lent')),
+                amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+                date DATE NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                refunded BOOLEAN NOT NULL DEFAULT FALSE,
+                refunded_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS loans_user_id_idx ON loans (user_id);
         """)
         conn.commit()
         print("Database schema initialized successfully!")
@@ -88,6 +104,87 @@ class GoogleAuthRequest(BaseModel):
     name: Optional[str] = "Expense User"
     picture: Optional[str] = None
     sub: Optional[str] = None
+
+class LoanCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    user_id: str = Field(min_length=1)
+    person: str = Field(min_length=1, max_length=100)
+    direction: Literal['borrowed', 'lent']
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    date: date
+    note: str = Field(default='', max_length=2000)
+
+class LoanStatus(BaseModel):
+    refunded: bool
+
+
+def serialize_loan(row):
+    return {**row, 'amount': float(row['amount'])}
+
+
+@app.get('/api/loans')
+def get_loans(user_id: str = Query(...)):
+    conn = get_db()
+    try:
+        effective_user_id = resolve_user_id(conn, user_id)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                'SELECT * FROM loans WHERE user_id = %s ORDER BY refunded, date DESC, id DESC;',
+                (effective_user_id,),
+            )
+            return [serialize_loan(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+@app.post('/api/loans', status_code=201)
+def create_loan(loan: LoanCreate):
+    conn = get_db()
+    try:
+        effective_user_id = resolve_user_id(conn, loan.user_id)
+        with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                '''INSERT INTO loans (user_id, person, direction, amount, date, note)
+                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING *;''',
+                (effective_user_id, loan.person, loan.direction, loan.amount, loan.date, loan.note),
+            )
+            return serialize_loan(cur.fetchone())
+    finally:
+        conn.close()
+
+
+@app.patch('/api/loans/{loan_id}')
+def set_loan_status(loan_id: int, payload: LoanStatus, user_id: str = Query(...)):
+    conn = get_db()
+    try:
+        effective_user_id = resolve_user_id(conn, user_id)
+        with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                '''UPDATE loans SET refunded = %s,
+                   refunded_at = CASE WHEN %s THEN COALESCE(refunded_at, CURRENT_TIMESTAMP) ELSE NULL END
+                   WHERE id = %s AND user_id = %s RETURNING *;''',
+                (payload.refunded, payload.refunded, loan_id, effective_user_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail='Loan not found')
+            return serialize_loan(row)
+    finally:
+        conn.close()
+
+
+@app.delete('/api/loans/{loan_id}')
+def delete_loan(loan_id: int, user_id: str = Query(...)):
+    conn = get_db()
+    try:
+        effective_user_id = resolve_user_id(conn, user_id)
+        with conn, conn.cursor() as cur:
+            cur.execute('DELETE FROM loans WHERE id = %s AND user_id = %s;', (loan_id, effective_user_id))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail='Loan not found')
+        return {'success': True, 'id': loan_id}
+    finally:
+        conn.close()
 
 # Category Colors Palette
 CATEGORY_COLORS = {
