@@ -21,6 +21,12 @@ class TrackerController extends ChangeNotifier {
   DateTime period = DateTime(DateTime.now().year, DateTime.now().month);
   DashboardStats? stats;
   List<Expense> expenses = [];
+  List<Loan> loans = [];
+  bool loansLoaded = false;
+  String? loansError;
+  double outstanding(String direction) => loans
+      .where((loan) => loan.direction == direction && !loan.refunded)
+      .fold(0.0, (sum, loan) => sum + loan.amount);
   bool loading = false;
   bool hidden = false;
   bool stale = true;
@@ -109,6 +115,10 @@ class TrackerController extends ChangeNotifier {
         restoredPeriods[entry.key] = value;
       }
       expenses = restoredExpenses;
+      loans = (data['loans'] as List? ?? [])
+          .map((e) => Loan.fromJson(e as Map<String, dynamic>))
+          .toList();
+      loansLoaded = data['loans_loaded'] == true;
       _expensesUpdatedAt = restoredAt;
       _periods.addAll(restoredPeriods);
       _showPeriodCache();
@@ -136,6 +146,8 @@ class TrackerController extends ChangeNotifier {
         'version': 1,
         'updated_at': _expensesUpdatedAt!.toIso8601String(),
         'expenses': expenses.map((e) => e.toJson()).toList(),
+        'loans': loans.map((e) => e.toJson()).toList(),
+        'loans_loaded': loansLoaded,
         'periods': _periods,
       });
     } catch (_) {
@@ -283,10 +295,20 @@ class TrackerController extends ChangeNotifier {
       final result = await Future.wait<Object>([
         api.stats(requestedPeriod),
         api.expenses(),
+        _readLoans(),
       ]);
       if (_disposed || generation != _generation) return;
       stats = result[0] as DashboardStats;
       expenses = result[1] as List<Expense>;
+      final loanResult = result[2];
+      if (loanResult is List<Loan>) {
+        loans = loanResult;
+        loansLoaded = true;
+        loansError = null;
+      } else {
+        loansError =
+            'Could not refresh borrowed and lent money. Pull down to retry.';
+      }
       updatedAt = DateTime.now();
       _expensesUpdatedAt = updatedAt;
       _periods.remove(key);
@@ -318,7 +340,45 @@ class TrackerController extends ChangeNotifier {
   Future<void> save(ExpenseDraft draft, {int? id}) =>
       _write(() => api.save(draft, id: id), date: draft.date);
   Future<void> delete(int id) => _write(() => api.delete(id));
-  Future<void> _write(Future<void> Function() action, {DateTime? date}) async {
+  Future<Object> _readLoans() async {
+    try {
+      return await api.loans();
+    } catch (e) {
+      return e;
+    }
+  }
+
+  Future<void> addLoan({
+    required String person,
+    required String direction,
+    required double amount,
+    required DateTime date,
+    String note = '',
+  }) => _write(() async {
+    final loan = await api.addLoan(
+      person: person,
+      direction: direction,
+      amount: amount,
+      date: date,
+      note: note,
+    );
+    loans = [loan, ...loans];
+  }, successLabel: 'Entry saved');
+
+  Future<void> refundLoan(Loan loan) => _write(() async {
+    final updated = await api.refundLoan(loan.id, !loan.refunded);
+    loans = loans.map((item) => item.id == loan.id ? updated : item).toList();
+  }, successLabel: 'Entry updated');
+
+  Future<void> deleteLoan(int id) => _write(() async {
+    await api.deleteLoan(id);
+    loans = loans.where((item) => item.id != id).toList();
+  }, successLabel: 'Entry deleted');
+  Future<void> _write(
+    Future<void> Function() action, {
+    DateTime? date,
+    String? successLabel,
+  }) async {
     if (_writing) {
       throw const ApiException('Another change is being saved. Please wait.');
     }
@@ -345,7 +405,7 @@ class TrackerController extends ChangeNotifier {
       await _refresh(afterWrite: true);
       if (error != null) {
         error =
-            '${date == null ? 'Expense deleted' : 'Expense saved'}; refresh failed. $error';
+            '${successLabel ?? (date == null ? 'Expense deleted' : 'Expense saved')}; refresh failed. $error';
       }
     } catch (_) {
       if (!_disposed) {

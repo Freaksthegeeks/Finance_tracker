@@ -7,6 +7,7 @@ import '../api.dart';
 import '../models.dart';
 import '../tracker_controller.dart';
 import 'expense_form.dart';
+import 'loans.dart';
 import 'spending_chart.dart';
 import 'theme.dart';
 
@@ -271,6 +272,11 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
             selectedIcon: Icon(Icons.receipt_long_rounded),
             label: 'All Expenses',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.handshake_outlined),
+            selectedIcon: Icon(Icons.handshake),
+            label: 'Borrow & Lend',
+          ),
         ],
       ),
       body: SafeArea(
@@ -403,6 +409,7 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
                         ),
                       ]),
                       _scroll(_history()),
+                      _scroll([LoanLedger(controller: c)]),
                     ],
                   ),
                 ),
@@ -501,6 +508,8 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
           );
         },
       ),
+      const SizedBox(height: 20),
+      LoanSummary(controller: c, onManage: () => setState(() => _tab = 3)),
       const SizedBox(height: 20),
       Panel(
         child: Column(

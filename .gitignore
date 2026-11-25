@@ -18,6 +18,15 @@ __pycache__/
 .venv/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+
+# Test reports and coverage data
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+lcov.info
 
 # Node dependencies & build output
 node_modules/
@@ -65,6 +74,22 @@ xcuserdata/
 *.apk
 *.aab
 *.ipa
+
+# Local financial data and database backups (keep schema/migration SQL versioned)
+/backups/
+/exports/
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# JVM crash dumps from Android builds
+*.hprof
+*.mdmp
 
 # Logs
 *.log

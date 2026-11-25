@@ -624,3 +624,17 @@ button, input, select, textarea {
   max-width: 480px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
+.loan-balances { display: flex; flex-wrap: wrap; gap: 24px 64px; margin: 16px 0; }
+.loan-balances p { color: #64748b; margin-bottom: 6px; }
+.loan-balances strong { font-size: 24px; overflow-wrap: anywhere; }
+.loan-error { color: #b91c1c; margin: 12px 0; }
+.loan-form fieldset { border: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 20px; }
+.loan-form label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; text-align: left; }
+.loan-form input, .loan-form select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; font: inherit; }
+.loan-form button { align-self: end; }
+.loan-entry { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; border-top: 1px solid #e2e8f0; padding: 20px 0; overflow-wrap: anywhere; }
+.loan-entry p { margin: 6px 0; }
+.loan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.loan-refunded { color: #057a55; }
+.loan-actions button:disabled, .loan-form button:disabled { opacity: 0.6; cursor: wait; }
+.nav-tabs-container { flex-wrap: wrap; }

@@ -128,4 +128,44 @@ class TrackerApi {
   }
 
   void close() => _client.close();
+
+  Future<List<Loan>> loans() async => (await _request(
+    'GET',
+    'loans',
+    query: {'user_id': config.userId},
+  ) as List).map((e) => Loan.fromJson(e as Map<String, dynamic>)).toList();
+
+  Future<Loan> addLoan({
+    required String person,
+    required String direction,
+    required double amount,
+    required DateTime date,
+    String note = '',
+  }) async => Loan.fromJson(
+    await _request(
+      'POST',
+      'loans',
+      body: {
+        'user_id': config.userId,
+        'person': person.trim(),
+        'direction': direction,
+        'amount': amount,
+        'date': dateValue(date),
+        'note': note.trim(),
+      },
+    ) as Map<String, dynamic>,
+  );
+
+  Future<Loan> refundLoan(int id, bool refunded) async => Loan.fromJson(
+    await _request(
+      'PATCH',
+      'loans/$id',
+      query: {'user_id': config.userId},
+      body: {'refunded': refunded},
+    ) as Map<String, dynamic>,
+  );
+
+  Future<void> deleteLoan(int id) async {
+    await _request('DELETE', 'loans/$id', query: {'user_id': config.userId});
+  }
 }

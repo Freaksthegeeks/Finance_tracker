@@ -1,16 +1,32 @@
 # Finance Tracker
 
-A finance tracker with a React web frontend, a Flutter mobile app for Android and iOS, and a shared FastAPI backend backed by PostgreSQL. Both clients use the same expense data.
+A finance tracker with a React web frontend, a Flutter mobile app for Android and iOS, and a shared FastAPI backend backed by PostgreSQL. Both clients share expense records and a separate borrowing/lending ledger.
 
 ## Features
 
 - Dashboard with all-time spending, monthly spending, daily average, and active category totals.
 - Daily spending chart, recent expenses, and monthly and yearly category breakdowns.
 - Add, edit, and delete expenses with amount, category, description, and date.
+- Track borrowed and lent money separately on mobile and web. Record a person, amount, date, and optional note; mark entries refunded to strike through names and remove them from outstanding balances, or undo a refund.
+- Dashboard shows all-date outstanding borrowed and lent balances separately. These entries and repayments never count as expenses.
 - Search and category filters, plus month and year selection.
 - Amount privacy toggle and Indian rupee formatting.
 - Mobile navigation, pull-to-refresh, and foreground refresh every 15 seconds.
 - Mobile opens directly into the tracker without login or Google authentication.
+- Mobile caches expenses, loan entries, and the last 12 dashboard periods while connecting to the backend.
+
+## Track borrowed and lent money
+
+Open **Borrow & Lend** on mobile or web, choose a type, and enter the person's name, amount, date, and an optional note:
+
+| Type | Meaning | Dashboard balance |
+| --- | --- | --- |
+| Borrowed | Money you received and must repay | You owe |
+| Lent | Money you gave and expect back | Owed to you |
+
+After the full amount is returned, select **Mark refunded**. The person's name is struck through, the entry stays in repayment history, and its amount is removed from the corresponding outstanding balance. **Undo refund** reopens the entry and restores the balance. Use **Delete entry** to remove an incorrect record after confirmation.
+
+Balances include outstanding entries from all dates, regardless of the selected expense month or year. Loan entries and repayments do not affect expense totals, daily averages, charts, or category breakdowns. Refunds settle an entire entry; partial repayments are not tracked. The amount privacy toggle also hides loan amounts.
 
 ## Project structure
 
@@ -73,10 +89,12 @@ From `mobile`:
 flutter analyze
 flutter test
 dart tool/configure.dart
-flutter build apk --debug
+flutter clean
+flutter pub get
+flutter build apk
 ```
 
-The installable debug APK is generated at `mobile/build/app/outputs/flutter-apk/app-debug.apk` relative to the repository root. Android builds need a configured Android SDK and compatible JDK. Kotlin incremental compilation is disabled because the project and package cache can reside on different Windows drives.
+The release APK is generated at `mobile/build/app/outputs/flutter-apk/app-release.apk` relative to the repository root. For a debug APK, run `flutter build apk --debug`; its output is `mobile/build/app/outputs/flutter-apk/app-debug.apk`. Android builds need a configured Android SDK and compatible JDK. Kotlin incremental compilation is disabled because the project and package cache can reside on different Windows drives.
 
 Release distribution requires your signing configuration; the Android scaffold currently uses debug signing for release builds. iOS builds require macOS, Xcode, and the appropriate signing setup:
 
@@ -84,7 +102,7 @@ Release distribution requires your signing configuration; the Android scaffold c
 flutter build ios --no-codesign
 ```
 
-API and widget tests use a mock HTTP backend without changing the live database. They cover request payloads, refresh races, errors, startup without authentication, privacy, search, validation, add/edit/delete, and narrow mobile layouts. Capture screen previews with:
+API and widget tests use a mock HTTP backend without changing the live database. They cover request payloads, refresh races, errors, startup without authentication, privacy, search, validation, add/edit/delete, loan balances, refunds and undo, expense isolation, and narrow mobile layouts. Run only the loan screen tests with `flutter test test/loans_test.dart`. Capture screen previews with:
 
 ```sh
 flutter test test/app_test.dart --dart-define=CAPTURE_SCREENSHOTS=true
@@ -123,6 +141,15 @@ python -m pip install -r requirements.txt
 python -m uvicorn backend.main:app --reload --port 8000
 ```
 
+PowerShell can also run the environment's Python directly without activation:
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
+```
+
+If the environment reports a missing Python executable after moving the project or changing Python installations, recreate the virtual environment with an installed Python and reinstall dependencies. Virtual environments are local and are not stored in Git.
+
 In another terminal, start the web frontend:
 
 ```sh
@@ -140,6 +167,23 @@ npm run lint
 npm run build
 ```
 
+### Backend tests
+
+From the repository root, with backend dependencies installed in the active Python environment:
+
+```sh
+python -m pip install httpx
+python -m unittest backend.test_loans -v
+```
+
+These tests use an isolated in-memory SQLite adapter without contacting the configured PostgreSQL database. They check loan validation, profile scoping, refunds, repeated refund requests, undo, deletion, and expense isolation. PostgreSQL deployment still needs a configured database.
+
+### Enable borrowing and lending on an existing installation
+
+Deploy or restart the updated backend before using the new clients. Backend startup creates the separate `loans` table and its user index with `CREATE ... IF NOT EXISTS`; existing expense records remain unchanged. Then rebuild the web frontend and install the updated mobile APK. Both clients use the same backend URL and profile ID to share loan entries.
+
+For a Compose installation, run `docker compose up --build -d` from the repository root. For a local installation, restart the Uvicorn process with the updated code. For a hosted backend, deploy the updated backend source. If the clients cannot load the ledger, check `/api/health` and the backend startup logs.
+
 ## API
 
 | Method | Endpoint | Purpose |
@@ -150,10 +194,16 @@ npm run build
 | POST | `/api/expenses` | Create an expense, including `user_id` in the body |
 | PUT | `/api/expenses/{id}` | Update an expense with `user_id` in the query |
 | DELETE | `/api/expenses/{id}` | Delete an expense with `user_id` in the query |
+| GET | `/api/loans` | Borrowed/lent entries and repayment history for `user_id` |
+| POST | `/api/loans` | Record `user_id`, `person`, `direction` (`borrowed`/`lent`), positive `amount` (up to two decimals), `date`, and optional `note` |
+| PATCH | `/api/loans/{id}` | Set `refunded` to true/false, with `user_id` in the query |
+| DELETE | `/api/loans/{id}` | Remove an incorrect entry with `user_id` in the query |
 | POST | `/api/auth/google` | Existing web profile lookup/creation endpoint; unused by mobile |
 
 The existing profile endpoint accepts an email; it does not verify Google credentials. The mobile application follows the backend's current user-ID-based contract.
 
 ## Files in Git
 
-Commit application source, native project files, font licenses, public mobile configuration, and dependency lockfiles (`frontend/package-lock.json` and `mobile/pubspec.lock`). Ignore local environment files, signing credentials, dependency caches, generated native files, test coverage, and build output. See [.gitignore](.gitignore) and the platform-specific ignore files under `mobile`.
+Commit application source, tests, database schema/migration scripts, documentation, native project files, font licenses, public mobile configuration, environment examples, and dependency lockfiles (`frontend/package-lock.json` and `mobile/pubspec.lock`).
+
+The root [.gitignore](.gitignore) and platform-specific files under `mobile` exclude local environment files, signing credentials, virtual environments, dependency caches, generated native files, test reports, coverage, APKs/app bundles, build output, SQLite files, and JVM crash dumps. Keep local financial exports in `/exports/` and database backups in `/backups/`; both root folders are ignored. Store the actual shared ledger in the backend database rather than a repository file.

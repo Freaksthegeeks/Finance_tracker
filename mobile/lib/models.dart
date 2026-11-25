@@ -73,6 +73,43 @@ class ExpenseDraft {
   };
 }
 
+class Loan {
+  final int id;
+  final String person;
+  final String direction;
+  final double amount;
+  final DateTime date;
+  final String note;
+  final bool refunded;
+  const Loan({
+    required this.id,
+    required this.person,
+    required this.direction,
+    required this.amount,
+    required this.date,
+    this.note = '',
+    this.refunded = false,
+  });
+  factory Loan.fromJson(Map<String, dynamic> json) => Loan(
+    id: json['id'] as int,
+    person: json['person'] as String,
+    direction: json['direction'] as String,
+    amount: number(json['amount']),
+    date: DateTime.parse(json['date'] as String),
+    note: json['note'] as String? ?? '',
+    refunded: json['refunded'] as bool? ?? false,
+  );
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'person': person,
+    'direction': direction,
+    'amount': amount,
+    'date': dateValue(date),
+    'note': note,
+    'refunded': refunded,
+  };
+}
+
 class DailyPoint {
   final String label;
   final double amount;

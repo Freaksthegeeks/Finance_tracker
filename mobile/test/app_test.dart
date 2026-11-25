@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class TestBackend {
   final requests = <http.Request>[];
+  final loans = <Map<String, dynamic>>[];
   final expenses = <Map<String, dynamic>>[
     {
       'id': 1,
@@ -38,6 +39,24 @@ class TestBackend {
         requests.add(request);
         if (request.url.path.endsWith('/health')) {
           return http.Response('{"status":"ok","db_connected":true}', 200);
+        }
+        if (request.url.path.contains('/loans')) {
+          if (request.method == 'POST') {
+            loans.add({
+              ...jsonDecode(request.body) as Map<String, dynamic>,
+              'id': loans.length + 1,
+              'refunded': false,
+            });
+            return http.Response(jsonEncode(loans.last), 201);
+          }
+          if (request.method == 'PATCH') {
+            final loan = loans.firstWhere(
+              (e) => '${e['id']}' == request.url.pathSegments.last,
+            );
+            loan.addAll(jsonDecode(request.body) as Map<String, dynamic>);
+            return http.Response(jsonEncode(loan), 200);
+          }
+          return http.Response(jsonEncode(loans), 200);
         }
         if (request.method == 'POST') {
           expenses.add({
