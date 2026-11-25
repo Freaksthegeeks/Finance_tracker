@@ -27,6 +27,13 @@ __pycache__/
 htmlcov/
 test-results/
 lcov.info
+*.lcov
+
+# Flutter-generated golden comparison images and coverage helpers
+# Keep intentional screenshot fixtures and the design reference archive versioned.
+/mobile/test/failures/
+/mobile/integration_test/failures/
+/mobile/test/.test_coverage.dart
 
 # Node dependencies & build output
 node_modules/

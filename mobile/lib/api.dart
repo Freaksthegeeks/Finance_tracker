@@ -141,12 +141,14 @@ class TrackerApi {
     required double amount,
     required DateTime date,
     String note = '',
+    int? id,
   }) async => Loan.fromJson(
     await _request(
-      'POST',
-      'loans',
+      id == null ? 'POST' : 'PUT',
+      id == null ? 'loans' : 'loans/$id',
+      query: id == null ? null : {'user_id': config.userId},
       body: {
-        'user_id': config.userId,
+        if (id == null) 'user_id': config.userId,
         'person': person.trim(),
         'direction': direction,
         'amount': amount,

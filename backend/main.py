@@ -105,14 +105,16 @@ class GoogleAuthRequest(BaseModel):
     picture: Optional[str] = None
     sub: Optional[str] = None
 
-class LoanCreate(BaseModel):
+class LoanDetails(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    user_id: str = Field(min_length=1)
     person: str = Field(min_length=1, max_length=100)
     direction: Literal['borrowed', 'lent']
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     date: date
     note: str = Field(default='', max_length=2000)
+
+class LoanCreate(LoanDetails):
+    user_id: str = Field(min_length=1)
 
 class LoanStatus(BaseModel):
     refunded: bool
@@ -149,6 +151,26 @@ def create_loan(loan: LoanCreate):
                 (effective_user_id, loan.person, loan.direction, loan.amount, loan.date, loan.note),
             )
             return serialize_loan(cur.fetchone())
+    finally:
+        conn.close()
+
+
+@app.put('/api/loans/{loan_id}')
+def update_loan(loan_id: int, loan: LoanDetails, user_id: str = Query(...)):
+    conn = get_db()
+    try:
+        effective_user_id = resolve_user_id(conn, user_id)
+        with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                '''UPDATE loans SET person = %s, direction = %s, amount = %s,
+                   date = %s, note = %s WHERE id = %s AND user_id = %s RETURNING *;''',
+                (loan.person, loan.direction, loan.amount, loan.date, loan.note,
+                 loan_id, effective_user_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail='Loan not found')
+            return serialize_loan(row)
     finally:
         conn.close()
 

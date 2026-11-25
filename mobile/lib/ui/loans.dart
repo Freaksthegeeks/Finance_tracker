@@ -1,91 +1,257 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../api.dart';
 import '../models.dart';
 import '../tracker_controller.dart';
 import 'theme.dart';
 
-class LoanSummary extends StatelessWidget {
-  final TrackerController controller;
-  final VoidCallback? onManage;
-  const LoanSummary({super.key, required this.controller, this.onManage});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = controller;
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Borrowed & lent',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Outstanding across all dates · Excluded from expenses',
-            style: TextStyle(color: muted, fontSize: 12),
-          ),
-          if (c.loansError != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              '${c.loansLoaded ? 'Showing saved balances. ' : ''}${c.loansError}',
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ],
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 28,
-            runSpacing: 16,
-            children: [
-              _balance(context, 'Borrowed · You owe', 'borrowed'),
-              _balance(context, 'Lent · Owed to you', 'lent'),
-            ],
-          ),
-          if (onManage != null)
-            TextButton(
-              onPressed: onManage,
-              child: const Text('Manage borrowed & lent'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _balance(BuildContext context, String label, String direction) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: muted, fontSize: 12)),
-          const SizedBox(height: 4),
-          Text(
-            controller.loansLoaded
-                ? money(controller.outstanding(direction), controller.hidden)
-                : '—',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-        ],
-      );
-}
+typedef Undoable = void Function(
+  String label,
+  VoidCallback restore,
+  Future<void> Function() commit,
+);
 
 class LoanLedger extends StatefulWidget {
   final TrackerController controller;
-  const LoanLedger({super.key, required this.controller});
+  final Undoable undoable;
+  final Set<int> pending;
+  const LoanLedger({
+    super.key,
+    required this.controller,
+    required this.undoable,
+    required this.pending,
+  });
+
   @override
   State<LoanLedger> createState() => _LoanLedgerState();
 }
 
 class _LoanLedgerState extends State<LoanLedger> {
+  bool _settled = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final loans =
+        c.loans.where((loan) => !widget.pending.contains(loan.id)).toList()
+          ..sort((a, b) {
+            final date = b.date.compareTo(a.date);
+            return date == 0 ? b.id.compareTo(a.id) : date;
+          });
+    double balance(String direction) => loans
+        .where((loan) => !loan.refunded && loan.direction == direction)
+        .fold(0.0, (sum, loan) => sum + loan.amount);
+    Widget tile(
+      String label,
+      String direction,
+      Color foreground,
+      Color background,
+      IconData icon,
+    ) => Expanded(
+      child: Panel(
+        color: background,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: foreground),
+            Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(color: foreground),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              c.loansLoaded ? money(balance(direction), c.hidden) : '—',
+              style: theme.textTheme.headlineSmall?.copyWith(color: foreground),
+            ),
+          ],
+        ),
+      ),
+    );
+    final visible = loans.where((loan) => loan.refunded == _settled);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            tile(
+              'Owed to you',
+              'lent',
+              colors.onPrimaryContainer,
+              colors.primaryContainer,
+              LucideIcons.arrowUpRight,
+            ),
+            const SizedBox(width: 12),
+            tile(
+              'You owe',
+              'borrowed',
+              colors.onSecondaryContainer,
+              colors.secondaryContainer,
+              LucideIcons.arrowDownLeft,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        SegmentedButton<bool>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: false, label: Text('Open')),
+            ButtonSegment(value: true, label: Text('Settled')),
+          ],
+          selected: {_settled},
+          onSelectionChanged: (selection) =>
+              setState(() => _settled = selection.first),
+        ),
+        const SizedBox(height: 16),
+        Panel(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: visible.isEmpty
+              ? EmptyMessage(
+                  title: _settled ? 'No settled loans' : 'No open loans',
+                  message: _settled
+                      ? 'Settled entries will appear here.'
+                      : 'Add an entry to track borrowed or lent money.',
+                  action: _settled
+                      ? null
+                      : TextButton(
+                          onPressed: () => showLoanSheet(context, c),
+                          child: const Text('New loan entry'),
+                        ),
+                )
+              : Column(
+                  children: [
+                    for (final loan in visible)
+                      Dismissible(
+                        key: ValueKey(loan.id),
+                        direction: _settled
+                            ? DismissDirection.none
+                            : DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.all(16),
+                          color: colors.primaryContainer,
+                          child: const Icon(LucideIcons.check),
+                        ),
+                        onDismissed: (_) => _change(
+                          loan,
+                          'Loan settled',
+                          () => c.refundLoan(loan),
+                        ),
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          onTap: () async {
+                            final action = await showLoanSheet(
+                              context,
+                              c,
+                              loan,
+                            );
+                            if (!mounted) return;
+                            if (action == LoanAction.delete) {
+                              _change(
+                                loan,
+                                'Loan deleted',
+                                () => c.deleteLoan(loan.id),
+                              );
+                            } else if (action == LoanAction.reopen) {
+                              _change(
+                                loan,
+                                'Loan reopened',
+                                () => c.refundLoan(loan),
+                              );
+                            } else if (action == LoanAction.settle) {
+                              _change(
+                                loan,
+                                'Loan settled',
+                                () => c.refundLoan(loan),
+                              );
+                            }
+                          },
+                          leading: CircleAvatar(
+                            backgroundColor: colors.surfaceContainerHighest,
+                            child: Text(
+                              loan.person.characters.firstOrNull
+                                      ?.toUpperCase() ??
+                                  '?',
+                            ),
+                          ),
+                          title: Text(loan.person),
+                          subtitle: Text(
+                            [
+                              if (loan.note.isNotEmpty) loan.note,
+                              DateFormat('d MMM').format(loan.date),
+                            ].join(' · '),
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                money(loan.amount, c.hidden),
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: loan.direction == 'lent'
+                                      ? colors.primary
+                                      : colors.secondary,
+                                ),
+                              ),
+                              Text(
+                                loan.direction == 'lent' ? 'Lent' : 'Borrowed',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _change(Loan loan, String label, Future<void> Function() commit) {
+    setState(() => widget.pending.add(loan.id));
+    final pending = widget.pending;
+    widget.undoable(label, () => pending.remove(loan.id), commit);
+  }
+}
+
+enum LoanAction { delete, settle, reopen }
+
+Future<LoanAction?> showLoanSheet(
+  BuildContext context,
+  TrackerController controller, [
+  Loan? loan,
+]) => showModalBottomSheet<LoanAction>(
+  context: context,
+  isScrollControlled: true,
+  showDragHandle: true,
+  useSafeArea: true,
+  builder: (context) => _LoanSheet(controller: controller, loan: loan),
+);
+
+class _LoanSheet extends StatefulWidget {
+  final TrackerController controller;
+  final Loan? loan;
+  const _LoanSheet({required this.controller, this.loan});
+
+  @override
+  State<_LoanSheet> createState() => _LoanSheetState();
+}
+
+class _LoanSheetState extends State<_LoanSheet> {
   final _form = GlobalKey<FormState>();
-  final _person = TextEditingController();
-  final _amount = TextEditingController();
-  final _note = TextEditingController();
-  String _direction = 'lent';
-  DateTime _date = DateUtils.dateOnly(DateTime.now());
+  late final _person = TextEditingController(text: widget.loan?.person);
+  late final _amount = TextEditingController(
+    text: widget.loan?.amount.toStringAsFixed(2),
+  );
+  late final _note = TextEditingController(text: widget.loan?.note);
+  late String _direction = widget.loan?.direction ?? 'lent';
+  late DateTime _date = widget.loan?.date ?? DateUtils.dateOnly(DateTime.now());
+  bool _saving = false;
   String? _error;
-  bool _busy = false;
-  TrackerController get c => widget.controller;
 
   @override
   void dispose() {
@@ -95,32 +261,26 @@ class _LoanLedgerState extends State<LoanLedger> {
     super.dispose();
   }
 
-  Future<void> _perform(Future<void> Function() action) async {
-    if (_busy) return;
+  Future<void> _pickDate() async {
+    final result = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2200),
+    );
+    if (mounted && result != null) setState(() => _date = result);
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_form.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
     setState(() {
-      _busy = true;
+      _saving = true;
       _error = null;
     });
     try {
-      await action();
-    } catch (e) {
-      if (mounted) {
-        setState(
-          () => _error = e is ApiException
-              ? e.message
-              : 'Could not save the change. Please retry.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _add() async {
-    if (!_form.currentState!.validate()) return;
-    FocusScope.of(context).unfocus();
-    await _perform(() async {
-      await c.addLoan(
+      await widget.controller.addLoan(
+        id: widget.loan?.id,
         person: _person.text,
         direction: _direction,
         amount: double.parse(_amount.text),
@@ -128,238 +288,152 @@ class _LoanLedgerState extends State<LoanLedger> {
         note: _note.text,
       );
       if (!mounted) return;
-      _person.clear();
-      _amount.clear();
-      _note.clear();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Entry saved')));
-    });
-  }
-
-  Future<void> _delete(Loan loan) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete entry?'),
-        content: Text(
-          'Remove the entry for ${loan.person}? This also removes it from outstanding balances.',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.loan == null ? 'Loan added' : 'Loan updated'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      await _perform(() => c.deleteLoan(loan.id));
+      );
+      Navigator.pop(context);
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error is ApiException
+              ? error.message
+              : 'Could not save the loan. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final busy = _busy || c.saveProgress != SaveProgress.idle;
-    final ordered = [...c.loans]
-      ..sort((a, b) {
-        if (a.refunded != b.refunded) return a.refunded ? 1 : -1;
-        final byDate = b.date.compareTo(a.date);
-        return byDate == 0 ? b.id.compareTo(a.id) : byDate;
-      });
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        LoanSummary(controller: c),
-        const SizedBox(height: 20),
-        Panel(
-          child: Form(
-            key: _form,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Record borrowed or lent money',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  initialValue: _direction,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Type'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'lent',
-                      child: Text(
-                        'Lent · I gave money',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: 'borrowed',
-                      child: Text(
-                        'Borrowed · I received money',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                  onChanged: busy
-                      ? null
-                      : (value) => setState(() => _direction = value!),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _person,
-                  enabled: !busy,
-                  maxLength: 100,
-                  decoration: const InputDecoration(labelText: 'Person’s name'),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'Enter a name' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _amount,
-                  enabled: !busy,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Loan amount',
-                    prefixText: '₹ ',
-                  ),
-                  validator: (v) {
-                    final amount = double.tryParse(v ?? '');
-                    if (amount == null ||
-                        !amount.isFinite ||
-                        amount <= 0 ||
-                        amount > 9999999999.99) {
-                      return 'Enter a positive amount up to 9,999,999,999.99';
-                    }
-                    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(v!)) {
-                      return 'Use up to two decimal places';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: busy
-                      ? null
-                      : () async {
-                          final date = await showDatePicker(
-                            context: context,
-                            initialDate: _date,
-                            firstDate: DateTime(1900),
-                            lastDate: DateTime(2200, 12, 31),
-                          );
-                          if (date != null && mounted) {
-                            setState(() => _date = date);
-                          }
-                        },
-                  icon: const Icon(Icons.calendar_month),
-                  label: Text(DateFormat('dd MMM yyyy').format(_date)),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _note,
-                  enabled: !busy,
-                  maxLength: 2000,
-                  decoration: const InputDecoration(
-                    labelText: 'Note (optional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: busy ? null : _add,
-                  child: Text(busy ? 'Saving change…' : 'Save entry'),
-                ),
-              ],
-            ),
-          ),
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_saving,
+    child: SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          16 + MediaQuery.viewInsetsOf(context).bottom,
         ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        const SizedBox(height: 20),
-        Text(
-          'Entries & repayment history',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        if (ordered.isEmpty)
-          Text(
-            c.loansLoaded
-                ? 'No entries yet. Add a person and amount above.'
-                : 'Entries have not loaded yet.',
-          ),
-        for (final loan in ordered)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Panel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Form(
+          key: _form,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    loan.person,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      decoration: loan.refunded
-                          ? TextDecoration.lineThrough
-                          : null,
+                  Expanded(
+                    child: Text(
+                      widget.loan == null ? 'New loan entry' : 'Edit loan',
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${loan.direction == 'lent' ? 'Lent' : 'Borrowed'} · ${money(loan.amount, c.hidden)}',
-                  ),
-                  Text(
-                    DateFormat('dd MMM yyyy').format(loan.date),
-                    style: const TextStyle(color: muted),
-                  ),
-                  if (loan.note.isNotEmpty) Text(loan.note),
-                  if (loan.refunded)
-                    const Text(
-                      'Refunded',
-                      style: TextStyle(
-                        color: sage,
-                        fontWeight: FontWeight.w700,
+                  if (widget.loan != null)
+                    TextButton(
+                      onPressed: _saving
+                          ? null
+                          : () => Navigator.pop(context, LoanAction.delete),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
                       ),
+                      child: const Text('Delete'),
                     ),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      TextButton.icon(
-                        onPressed: busy
-                            ? null
-                            : () => _perform(() => c.refundLoan(loan)),
-                        icon: Icon(
-                          loan.refunded
-                              ? Icons.undo
-                              : Icons.check_circle_outline,
-                        ),
-                        label: Text(
-                          loan.refunded ? 'Undo refund' : 'Mark refunded',
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: busy ? null : () => _delete(loan),
-                        child: const Text('Delete entry'),
-                      ),
-                    ],
-                  ),
                 ],
               ),
-            ),
+              const SizedBox(height: 12),
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'lent', label: Text('Lent')),
+                  ButtonSegment(value: 'borrowed', label: Text('Borrowed')),
+                ],
+                selected: {_direction},
+                onSelectionChanged: _saving
+                    ? null
+                    : (value) => setState(() => _direction = value.first),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _person,
+                enabled: !_saving,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  labelText: 'Person',
+                  counterText: '',
+                ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a name'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _amount,
+                enabled: !_saving,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Amount',
+                  prefixText: '₹ ',
+                ),
+                validator: (value) {
+                  final text = value?.trim() ?? '';
+                  final amount = double.tryParse(text);
+                  return amount == null ||
+                          amount <= 0 ||
+                          amount > 9999999999.99 ||
+                          !RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text)
+                      ? 'Enter a positive amount with up to two decimals'
+                      : null;
+                },
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ActionChip(
+                  avatar: const Icon(LucideIcons.calendar, size: 16),
+                  label: Text(DateFormat.yMMMd().format(_date)),
+                  onPressed: _saving ? null : _pickDate,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _note,
+                enabled: !_saving,
+                maxLength: 2000,
+                decoration: const InputDecoration(
+                  labelText: 'Note (optional)',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_error != null)
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_saving ? 'Saving…' : 'Save loan'),
+              ),
+              if (widget.loan case final loan?)
+                TextButton(
+                  onPressed: _saving
+                      ? null
+                      : () => Navigator.pop(
+                          context,
+                          loan.refunded ? LoanAction.reopen : LoanAction.settle,
+                        ),
+                  child: Text(loan.refunded ? 'Reopen loan' : 'Mark settled'),
+                ),
+            ],
           ),
-      ],
-    );
-  }
+        ),
+      ),
+    ),
+  );
 }

@@ -1,199 +1,244 @@
 import 'dart:math' as math;
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../models.dart';
 import 'theme.dart';
 
-class SpendingChart extends StatefulWidget {
+class SpendingChart extends StatelessWidget {
   final List<DailyPoint> points;
   final bool hidden;
-  const SpendingChart({super.key, required this.points, required this.hidden});
-  @override
-  State<SpendingChart> createState() => _SpendingChartState();
-}
-
-class _SpendingChartState extends State<SpendingChart> {
-  int? _selected;
-  @override
-  void didUpdateWidget(covariant SpendingChart oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.points != widget.points) _selected = null;
-  }
+  final int? today;
+  const SpendingChart({
+    super.key,
+    required this.points,
+    required this.hidden,
+    this.today,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (widget.hidden) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    if (points.isEmpty) {
       return const SizedBox(
-        height: 190,
-        child: Center(
-          child: Text('Spending chart hidden', style: TextStyle(color: muted)),
-        ),
+        height: 160,
+        child: Center(child: Text('No spending to chart')),
       );
     }
-    if (widget.points.isEmpty || widget.points.every((p) => p.amount == 0)) {
-      return const SizedBox(
-        height: 190,
-        child: Center(
-          child: Text(
-            'Add an expense to see your daily pattern.',
-            style: TextStyle(color: muted),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-    final selected = _selected == null ? null : widget.points[_selected!];
-    return Column(
-      children: [
-        SizedBox(
-          height: 30,
-          child: Text(
-            selected == null
-                ? 'Touch the chart to explore each day'
-                : '${selected.label}  ·  ${money(selected.amount, false)}',
-            style: TextStyle(
-              color: selected == null ? muted : ink,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+    final maxAmount = points.fold<double>(
+      0,
+      (max, point) => math.max(max, point.amount),
+    );
+    return Semantics(
+      label: hidden
+          ? 'Daily spending chart. Amounts hidden.'
+          : 'Daily spending chart. ${points.map((point) => '${point.label}: ${money(point.amount, false)}').join('; ')}',
+      excludeSemantics: true,
+      child: SizedBox(
+        height: 160,
+        child: BarChart(
+          BarChartData(
+            maxY: maxAmount > 0 ? maxAmount * 1.15 : 1,
+            borderData: FlBorderData(show: false),
+            gridData: FlGridData(
+              drawVerticalLine: false,
+              horizontalInterval: maxAmount > 0 ? maxAmount / 3 : .25,
+              getDrawingHorizontalLine: (_) =>
+                  FlLine(color: colors.outlineVariant),
+            ),
+            titlesData: FlTitlesData(
+              leftTitles: const AxisTitles(),
+              rightTitles: const AxisTitles(),
+              topTitles: const AxisTitles(),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  interval: 1,
+                  reservedSize: 24,
+                  getTitlesWidget: (value, meta) {
+                    final day = value.toInt() + 1;
+                    if (![1, 8, 15, 22, points.length].contains(day)) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text('$day', style: theme.textTheme.bodySmall),
+                    );
+                  },
+                ),
+              ),
+            ),
+            barGroups: [
+              for (var index = 0; index < points.length; index++)
+                BarChartGroupData(
+                  x: index,
+                  barRods: [
+                    BarChartRodData(
+                      toY: points[index].amount,
+                      width: 6,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(4),
+                      ),
+                      color: index + 1 == today
+                          ? colors.primary
+                          : colors.outline,
+                    ),
+                  ],
+                ),
+            ],
+            barTouchData: BarTouchData(
+              touchTooltipData: BarTouchTooltipData(
+                getTooltipColor: (_) => colors.surface,
+                tooltipBorder: BorderSide(color: colors.outlineVariant),
+                fitInsideHorizontally: true,
+                fitInsideVertically: true,
+                getTooltipItem: (group, groupIndex, rod, rodIndex) =>
+                    BarTooltipItem(
+                      '${points[groupIndex].label}\n',
+                      theme.textTheme.labelLarge!,
+                      textAlign: TextAlign.left,
+                      children: [
+                        TextSpan(
+                          text: '■ ',
+                          style: TextStyle(color: colors.primary),
+                        ),
+                        TextSpan(
+                          text: 'Spent  ',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        TextSpan(
+                          text: money(rod.toY, hidden),
+                          style: theme.textTheme.labelLarge,
+                        ),
+                      ],
+                    ),
+              ),
             ),
           ),
         ),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            void select(Offset position) {
-              final ratio =
-                  ((position.dx - 48) / math.max(1, constraints.maxWidth - 60))
-                      .clamp(0.0, 1.0);
-              setState(
-                () => _selected = (ratio * (widget.points.length - 1)).round(),
-              );
-            }
-
-            return Semantics(
-              label: 'Daily spending chart. Touch or drag to inspect daily amounts.',
-              child: GestureDetector(
-                onTapDown: (details) => select(details.localPosition),
-                onHorizontalDragUpdate: (details) =>
-                    select(details.localPosition),
-                child: SizedBox(
-                  height: 190,
-                  width: double.infinity,
-                  child: CustomPaint(
-                    painter: _ChartPainter(widget.points, _selected),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _ChartPainter extends CustomPainter {
-  final List<DailyPoint> points;
-  final int? selected;
-  _ChartPainter(this.points, this.selected);
-  static const purple = Color(0xFF8B5CF6);
-  void label(
-    Canvas canvas,
-    String text,
-    Offset position, {
-    bool center = false,
-  }) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: const TextStyle(
-          fontFamily: 'TrackerSans',
-          fontSize: 10,
-          color: muted,
-        ),
+class CategoryDonut extends StatelessWidget {
+  final List<MapEntry<String, double>> slices;
+  final bool hidden;
+  final String caption;
+  final ValueChanged<int> onSelect;
+  const CategoryDonut({
+    super.key,
+    required this.slices,
+    required this.hidden,
+    required this.caption,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = slices.fold<double>(0, (sum, slice) => sum + slice.value);
+    final chart = SizedBox(
+      width: 154,
+      height: 154,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          PieChart(
+            PieChartData(
+              centerSpaceRadius: 54,
+              sectionsSpace: 3,
+              sections: [
+                for (final slice in slices)
+                  PieChartSectionData(
+                    value: slice.value,
+                    color: categoryColor(context, slice.key),
+                    showTitle: false,
+                    radius: 19,
+                  ),
+              ],
+              pieTouchData: PieTouchData(
+                touchCallback: (event, response) {
+                  final index =
+                      response?.touchedSection?.touchedSectionIndex ?? -1;
+                  if (event is FlTapUpEvent &&
+                      index >= 0 &&
+                      index < slices.length) {
+                    onSelect(index);
+                  }
+                },
+              ),
+            ),
+          ),
+          IgnorePointer(
+            child: SizedBox(
+              width: 102,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      money(total, hidden),
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ),
+                  Text(
+                    caption,
+                    style: theme.textTheme.bodySmall,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    painter.paint(canvas, position - Offset(center ? painter.width / 2 : 0, 0));
+    );
+    final legend = Column(
+      children: [
+        for (var index = 0; index < slices.length; index++)
+          InkWell(
+            onTap: () => onSelect(index),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 40),
+              child: Row(
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    color: categoryColor(context, slices[index].key),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      slices[index].key,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${(100 * slices[index].value / total).round()}%',
+                    style: theme.textTheme.labelLarge,
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth < 280
+          ? Column(children: [chart, legend])
+          : Row(
+              children: [
+                chart,
+                const SizedBox(width: 12),
+                Expanded(child: legend),
+              ],
+            ),
+    );
   }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final chart = Rect.fromLTRB(48, 12, size.width - 12, size.height - 28);
-    final maxValue =
-        points.fold<double>(0, (max, p) => math.max(max, p.amount)) * 1.15;
-    final grid = Paint()
-      ..color = const Color(0xFFEAEFF5)
-      ..strokeWidth = 1;
-    for (var i = 0; i <= 3; i++) {
-      final y = chart.bottom - chart.height * i / 3;
-      canvas.drawLine(Offset(chart.left, y), Offset(chart.right, y), grid);
-      final amount = maxValue * i / 3;
-      label(
-        canvas,
-        amount >= 100000
-            ? '${(amount / 100000).toStringAsFixed(1)}L'
-            : amount >= 1000
-            ? '${(amount / 1000).toStringAsFixed(1)}k'
-            : amount.toStringAsFixed(0),
-        Offset(0, y - 6),
-      );
-    }
-    Offset point(int index) => Offset(
-      chart.left + chart.width * index / math.max(1, points.length - 1),
-      chart.bottom - points[index].amount / maxValue * chart.height,
-    );
-    final line = Path()..moveTo(point(0).dx, point(0).dy);
-    for (var i = 1; i < points.length; i++) {
-      line.lineTo(point(i).dx, point(i).dy);
-    }
-    final fill = Path.from(line)
-      ..lineTo(chart.right, chart.bottom)
-      ..lineTo(chart.left, chart.bottom)
-      ..close();
-    canvas.drawPath(
-      fill,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            purple.withValues(alpha: 0.22),
-            purple.withValues(alpha: 0.01),
-          ],
-        ).createShader(chart),
-    );
-    canvas.drawPath(
-      line,
-      Paint()
-        ..color = purple
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeJoin = StrokeJoin.round,
-    );
-    for (final index in {0, points.length ~/ 2, points.length - 1}) {
-      label(
-        canvas,
-        points[index].label,
-        Offset(point(index).dx, chart.bottom + 10),
-        center: true,
-      );
-    }
-    if (selected != null) {
-      final p = point(selected!);
-      canvas.drawLine(
-        Offset(p.dx, chart.top),
-        Offset(p.dx, chart.bottom),
-        Paint()
-          ..color = purple.withValues(alpha: 0.3)
-          ..strokeWidth = 1,
-      );
-      canvas.drawCircle(p, 5, Paint()..color = purple);
-      canvas.drawCircle(p, 2.5, Paint()..color = Colors.white);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ChartPainter oldDelegate) =>
-      oldDelegate.points != points || oldDelegate.selected != selected;
 }
