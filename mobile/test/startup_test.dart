@@ -465,12 +465,12 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(FinanceTrackerApp(controller: controller));
       await tester.pump();
-      await tester.tap(find.text('Add Expense').last);
-      await tester.pump();
+      await tester.tap(find.byTooltip('Add expense'));
+      await tester.pumpAndSettle();
       final fields = find.byType(TextFormField);
       await tester.enterText(fields.at(0), '42');
       await tester.enterText(fields.at(1), 'Keep this draft');
-      final save = find.widgetWithText(FilledButton, 'Add Expense');
+      final save = find.widgetWithText(FilledButton, 'Save expense');
       await tester.ensureVisible(save);
       await tester.tap(save);
       await tester.pump();
@@ -483,10 +483,10 @@ void main() {
       expect(writes, 1);
       expect(find.text('Saving expense…'), findsOneWidget);
       expect(find.text('Keep this draft'), findsOneWidget);
-      expect(find.text('Expense added successfully'), findsNothing);
+      expect(find.text('Expense added'), findsNothing);
       written.complete(http.Response('{}', 200));
       await tester.pumpAndSettle();
-      expect(find.text('Expense added successfully'), findsOneWidget);
+      expect(find.text('Expense added'), findsOneWidget);
       expect(find.text('Keep this draft'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -515,12 +515,12 @@ void main() {
     );
     await tester.pumpWidget(FinanceTrackerApp(controller: controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Add Expense').last);
+    await tester.tap(find.byTooltip('Add expense'));
     await tester.pumpAndSettle();
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), '42');
     await tester.enterText(fields.at(1), 'Keep on failure');
-    final save = find.widgetWithText(FilledButton, 'Add Expense');
+    final save = find.widgetWithText(FilledButton, 'Save expense');
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();

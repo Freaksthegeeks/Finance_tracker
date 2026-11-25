@@ -354,6 +354,7 @@ class TrackerController extends ChangeNotifier {
     required double amount,
     required DateTime date,
     String note = '',
+    int? id,
   }) => _write(() async {
     final loan = await api.addLoan(
       person: person,
@@ -361,8 +362,9 @@ class TrackerController extends ChangeNotifier {
       amount: amount,
       date: date,
       note: note,
+      id: id,
     );
-    loans = [loan, ...loans];
+    loans = [loan, ...loans.where((item) => item.id != loan.id)];
   }, successLabel: 'Entry saved');
 
   Future<void> refundLoan(Loan loan) => _write(() async {

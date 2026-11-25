@@ -7,8 +7,9 @@ A finance tracker with a React web frontend, a Flutter mobile app for Android an
 - Dashboard with all-time spending, monthly spending, daily average, and active category totals.
 - Daily spending chart, recent expenses, and monthly and yearly category breakdowns.
 - Add, edit, and delete expenses with amount, category, description, and date.
-- Track borrowed and lent money separately on mobile and web. Record a person, amount, date, and optional note; mark entries refunded to strike through names and remove them from outstanding balances, or undo a refund.
-- Dashboard shows all-date outstanding borrowed and lent balances separately. These entries and repayments never count as expenses.
+- Track borrowed and lent money separately on mobile and web. Record a person, amount, date, and optional note; settle entries to remove them from outstanding balances while keeping their history.
+- Separate all-date borrowed/lent balances on the mobile Loans screen and web dashboard. These entries and repayments never count as expenses.
+- Mobile design follows `context/design system/Finance Tracker Mobile.zip`: Home, Activity, and Loans, floating add buttons, bottom sheets, light/dark themes, Lucide icons, spending bars, and a category donut.
 - Search and category filters, plus month and year selection.
 - Amount privacy toggle and Indian rupee formatting.
 - Mobile navigation, pull-to-refresh, and foreground refresh every 15 seconds.
@@ -17,14 +18,16 @@ A finance tracker with a React web frontend, a Flutter mobile app for Android an
 
 ## Track borrowed and lent money
 
-Open **Borrow & Lend** on mobile or web, choose a type, and enter the person's name, amount, date, and an optional note:
+On mobile, open **Loans** and tap **+**. On web, open **Borrow & Lend**. Choose a type and enter the person's name, amount, date, and an optional note:
 
-| Type | Meaning | Dashboard balance |
+| Type | Meaning | Outstanding balance |
 | --- | --- | --- |
 | Borrowed | Money you received and must repay | You owe |
 | Lent | Money you gave and expect back | Owed to you |
 
-After the full amount is returned, select **Mark refunded**. The person's name is struck through, the entry stays in repayment history, and its amount is removed from the corresponding outstanding balance. **Undo refund** reopens the entry and restores the balance. Use **Delete entry** to remove an incorrect record after confirmation.
+On mobile, swipe an open loan left or open its edit sheet and select **Mark settled**. The entry moves from **Open** to **Settled** and its amount is removed from the outstanding balance. The snackbar's **Undo** cancels the pending change; open a settled entry and choose **Reopen loan** to restore it later. Tap an entry to edit its details or delete it, also with an Undo window.
+
+On web, **Mark refunded** strikes through the person's name and removes the amount from outstanding balances. **Undo refund** restores the balance. **Delete entry** removes an incorrect record after confirmation.
 
 Balances include outstanding entries from all dates, regardless of the selected expense month or year. Loan entries and repayments do not affect expense totals, daily averages, charts, or category breakdowns. Refunds settle an entire entry; partial repayments are not tracked. The amount privacy toggle also hides loan amounts.
 
@@ -32,7 +35,8 @@ Balances include outstanding entries from all dates, regardless of the selected 
 
 ```text
 Finance_Tracker/
-├── backend/                 # FastAPI routes and PostgreSQL operations
+├── backend/                 # FastAPI routes, PostgreSQL operations, and loan tests
+├── context/design system/   # Mobile design reference archive
 ├── frontend/                # React / Vite web app
 ├── mobile/
 │   ├── android/             # Android project
@@ -81,6 +85,15 @@ flutter run --dart-define=TRACKER_USER_ID=your_existing_user_id
 
 The current backend falls back to its first user when an unknown ID is supplied, so use the exact profile ID when selecting another profile.
 
+### Mobile navigation
+
+- **Home:** the selected month's spending hero, daily spending bars, and recent expenses. Use the header month pill to change the period; pull down to refresh.
+- **Activity:** searchable expenses grouped by day, Month/Year/All scope, category chips, and a category donut whose slices and legend filter the list.
+- **Loans:** separate outstanding balances and Open/Settled history, excluded from spending.
+- **+ button:** opens an expense sheet on Home/Activity or a loan sheet on Loans. Tap an existing row to edit it. Expense categories use a one-tap grid and remember the last saved selection; notes are optional.
+
+Mobile initially uses the system's light/dark preference. The header's **Dark theme** switch overrides it and remembers your choice when you reopen the app. Swipe expense rows left to delete with Undo; swipe open loans left to settle with Undo. Changes wait until the snackbar's Undo window closes before being sent. If the app closes before that, the pending action is cancelled.
+
 ### Check and build
 
 From `mobile`:
@@ -105,10 +118,10 @@ flutter build ios --no-codesign
 API and widget tests use a mock HTTP backend without changing the live database. They cover request payloads, refresh races, errors, startup without authentication, privacy, search, validation, add/edit/delete, loan balances, refunds and undo, expense isolation, and narrow mobile layouts. Run only the loan screen tests with `flutter test test/loans_test.dart`. Capture screen previews with:
 
 ```sh
-flutter test test/app_test.dart --dart-define=CAPTURE_SCREENSHOTS=true
+flutter test test/app_test.dart test/loans_test.dart --dart-define=CAPTURE_SCREENSHOTS=true
 ```
 
-Previews are written to `mobile/build/screenshots`. Device launch and iOS signing still require testing on the target platforms. See [mobile/README.md](mobile/README.md) for more details.
+Previews are written to `mobile/build/screenshots`, including Home, Activity, loan sheets and settlement history, dark mode, and 320px layouts with normal and 150% text. The suite also verifies that the theme switch overrides the system preference and persists across reopening. Device launch and iOS signing still require testing on the target platforms. See [mobile/README.md](mobile/README.md) for more details.
 
 ## Run the web app and backend
 
@@ -196,6 +209,7 @@ For a Compose installation, run `docker compose up --build -d` from the reposito
 | DELETE | `/api/expenses/{id}` | Delete an expense with `user_id` in the query |
 | GET | `/api/loans` | Borrowed/lent entries and repayment history for `user_id` |
 | POST | `/api/loans` | Record `user_id`, `person`, `direction` (`borrowed`/`lent`), positive `amount` (up to two decimals), `date`, and optional `note` |
+| PUT | `/api/loans/{id}` | Edit person, direction, amount, date, and note with `user_id` in the query; preserves settlement status |
 | PATCH | `/api/loans/{id}` | Set `refunded` to true/false, with `user_id` in the query |
 | DELETE | `/api/loans/{id}` | Remove an incorrect entry with `user_id` in the query |
 | POST | `/api/auth/google` | Existing web profile lookup/creation endpoint; unused by mobile |
@@ -204,6 +218,6 @@ The existing profile endpoint accepts an email; it does not verify Google creden
 
 ## Files in Git
 
-Commit application source, tests, database schema/migration scripts, documentation, native project files, font licenses, public mobile configuration, environment examples, and dependency lockfiles (`frontend/package-lock.json` and `mobile/pubspec.lock`).
+Commit application source, tests, database schema/migration scripts, documentation, the mobile design reference archive, native project files, font licenses, public mobile configuration, environment examples, and dependency lockfiles (`frontend/package-lock.json` and `mobile/pubspec.lock`).
 
 The root [.gitignore](.gitignore) and platform-specific files under `mobile` exclude local environment files, signing credentials, virtual environments, dependency caches, generated native files, test reports, coverage, APKs/app bundles, build output, SQLite files, and JVM crash dumps. Keep local financial exports in `/exports/` and database backups in `/backups/`; both root folders are ignored. Store the actual shared ledger in the backend database rather than a repository file.

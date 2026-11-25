@@ -2,13 +2,17 @@
 
 Flutter application for Android and iOS, based on `../frontend`. Opens directly into the tracker without Google authentication or a login screen.
 
-Includes dashboard totals, interactive daily spending chart, recent expenses, monthly and yearly category breakdowns, amount privacy, adding expenses, searching/filtering history, editing, and confirmed deletion. Pull down to refresh; foreground data also refreshes every 15 seconds. Amount privacy is saved on the device.
+Uses the design reference in `../context/design system/Finance Tracker Mobile.zip`: sage light/dark themes, bundled Roboto, Lucide icons, and three destinations: **Home**, **Activity**, and **Loans**. The system theme is the initial default; the header's **Dark theme** switch saves a manual override across app launches. Pull down to refresh; foreground data also refreshes every 15 seconds. Amount privacy is saved on the device.
+
+Home shows one monthly spending hero, daily bars, and recent expenses. Activity groups expenses by day, with search, Month/Year/All scope, category chips, and a category donut. Tap a donut slice or legend row to filter the list. The header month pill changes the reporting period.
+
+The floating **+** opens an expense sheet on Home/Activity and a loan sheet on Loans. Expense entry starts with amount, a category grid, Today/Yesterday/date choices, an optional note, and Save. The last saved category is remembered. Tap a row to edit it; swipe an expense left to delete with an Undo snackbar. Changes wait until the Undo window closes before being sent; closing the app before then cancels the pending action.
 
 ## Borrowing and lending
 
-Open **Borrow & Lend** to record a person's name, a positive amount, the date, an optional note, and whether you borrowed or lent the money. The dashboard separately shows what you owe and what others owe you across all dates. These records never contribute to expenses, spending charts, or category totals.
+Open **Loans** and tap **+** to record a person's name, a positive amount, the date, an optional note, and whether you borrowed or lent the money. Two balance tiles separately show what you owe and what others owe you across all dates. These records never contribute to expenses, spending charts, or category totals.
 
-Select **Mark refunded** when the full amount is returned. The name is struck through, the entry remains in repayment history, and the outstanding balance decreases. **Undo refund** restores the balance; **Delete entry** removes an incorrect record after confirmation. Partial repayments are not tracked. The privacy toggle hides loan amounts too.
+Swipe an open loan left or select **Mark settled** in its edit sheet when the full amount is returned. **Undo** in the snackbar cancels that pending action. Settled entries remain in the **Settled** tab; open one and select **Reopen loan** to restore its balance. The edit sheet also lets you change details or delete an incorrect record with Undo. Partial repayments are not tracked. The privacy toggle hides loan amounts too.
 
 Deploy/restart the updated backend first so startup can create the `loans` table and enable `/api/loans`. The web and mobile clients share records when configured with the same backend and profile ID.
 
@@ -64,10 +68,10 @@ flutter build ios --no-codesign
 Automated tests use an in-memory HTTP backend, never the live database. They cover API ownership/payloads, out-of-order refreshes, cached startup, profile isolation, cold-start retries, confirmed writes, failures, no-auth startup, privacy, search, form validation, add/edit/delete, loan balances, refunds and undo, expense isolation, and narrow screen layout. Run the loan screen tests with `flutter test test/loans_test.dart`. Optional screenshots:
 
 ```powershell
-flutter test test/app_test.dart --dart-define=CAPTURE_SCREENSHOTS=true
+flutter test test/app_test.dart test/loans_test.dart --dart-define=CAPTURE_SCREENSHOTS=true
 ```
 
-Screenshots are saved under `build/screenshots`. Native platform launch and store signing still need validation on the target devices.
+Screenshots are saved under `build/screenshots`, including Home, Activity, loan sheets and settled history, dark mode, and 320px layouts with normal and 150% text. Generated previews, APKs, coverage reports, and failed golden comparisons are ignored by Git; the design reference archive and deliberate test fixtures remain versioned. Native platform launch and store signing still need validation on the target devices.
 
 ## Code
 

@@ -12,12 +12,16 @@ class ExpenseForm extends StatefulWidget {
   final TrackerController? controller;
   final Future<void> Function(ExpenseDraft) onSave;
   final VoidCallback? onSaved;
+  final VoidCallback? onDelete;
+  final String? initialCategory;
   const ExpenseForm({
     super.key,
     this.expense,
     this.controller,
     required this.onSave,
     this.onSaved,
+    this.onDelete,
+    this.initialCategory,
   });
   @override
   State<ExpenseForm> createState() => _ExpenseFormState();
@@ -30,6 +34,7 @@ class _ExpenseFormState extends State<ExpenseForm> {
   late String _category;
   late DateTime _date;
   bool _saving = false;
+  bool _more = false;
   String? _error;
 
   @override
@@ -41,7 +46,9 @@ class _ExpenseFormState extends State<ExpenseForm> {
     _description = TextEditingController(
       text: widget.expense?.description ?? '',
     );
-    _category = widget.expense?.category ?? categories.first;
+    _category =
+        widget.expense?.category ?? widget.initialCategory ?? categories.first;
+    _amount.addListener(() => setState(() {}));
     _date = widget.expense?.date ?? DateUtils.dateOnly(DateTime.now());
   }
 
@@ -79,22 +86,14 @@ class _ExpenseFormState extends State<ExpenseForm> {
         ),
       );
       if (!mounted) return;
-      if (widget.expense == null) {
-        _amount.clear();
-        _description.clear();
-        setState(() {
-          _category = categories.first;
-          _date = DateUtils.dateOnly(DateTime.now());
-        });
-      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             widget.controller?.error?.startsWith('Expense saved;') == true
                 ? 'Expense saved; refresh failed. Pull down to retry.'
                 : widget.expense == null
-                ? 'Expense added successfully'
-                : 'Expense updated successfully',
+                ? 'Expense added'
+                : 'Expense updated',
           ),
         ),
       );
@@ -114,175 +113,193 @@ class _ExpenseFormState extends State<ExpenseForm> {
 
   @override
   Widget build(BuildContext context) {
-    final choices = {...categories, _category};
+    final choices = {...(_more ? categories : categories.take(8)), _category};
+    final theme = Theme.of(context);
+    final today = DateUtils.dateOnly(DateTime.now());
+    final yesterday = DateTime(today.year, today.month, today.day - 1);
     return PopScope(
       canPop: !_saving,
       child: Form(
         key: _form,
-        child: AutofillGroup(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.expense == null ? 'Add New Expense' : 'Edit Expense',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                widget.expense == null
-                    ? 'A little tracking. A clearer picture.'
-                    : 'Update the details of your expense.',
-                style: const TextStyle(color: muted),
-              ),
-              const SizedBox(height: 28),
-              TextFormField(
-                controller: _amount,
-                enabled: !_saving,
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  prefixText: '₹ ',
-                  hintText: '0.00',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.expense == null ? 'New expense' : 'Edit expense',
+                    style: theme.textTheme.titleLarge,
+                  ),
                 ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                ],
-                textInputAction: TextInputAction.next,
-                validator: (value) {
-                  final amount = double.tryParse(value ?? '');
-                  if (amount == null || !amount.isFinite || amount <= 0) {
-                    return 'Enter an amount greater than zero';
-                  }
-                  if (amount > 9999999999.99) {
-                    return 'Amount exceeds the supported limit';
-                  }
-                  if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value!)) {
-                    return 'Use no more than 2 decimal places';
-                  }
-                  return null;
-                },
+                if (widget.onDelete != null)
+                  TextButton(
+                    onPressed: _saving ? null : widget.onDelete,
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                    ),
+                    child: const Text('Delete'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _amount,
+              enabled: !_saving,
+              autofocus: widget.expense == null,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineLarge,
+              decoration: const InputDecoration(
+                labelText: 'Amount',
+                prefixText: '₹ ',
+                hintText: '0.00',
               ),
-              const SizedBox(height: 20),
-              DropdownButtonFormField<String>(
-                key: ValueKey(_category),
-                initialValue: _category,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Category'),
-                items: choices
-                    .map(
-                      (category) => DropdownMenuItem(
-                        value: category,
-                        child: Row(
-                          children: [
-                            Icon(
-                              categoryIcon(category),
-                              size: 19,
-                              color: categoryColor(category),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                category,
-                                overflow: TextOverflow.ellipsis,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              validator: (value) => _amountError(value ?? ''),
+            ),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) => Wrap(
+                runSpacing: 8,
+                children: [
+                  for (final category in choices)
+                    SizedBox(
+                      width: constraints.maxWidth / 4,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Semantics(
+                          button: true,
+                          selected: _category == category,
+                          enabled: !_saving,
+                          label: category,
+                          excludeSemantics: true,
+                          onTap: _saving
+                              ? null
+                              : () => setState(() => _category = category),
+                          child: Material(
+                            color: _category == category
+                                ? theme.colorScheme.primaryContainer
+                                : theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              onTap: _saving
+                                  ? null
+                                  : () => setState(() => _category = category),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                child: Column(
+                                  children: [
+                                    CategoryIcon(category: category),
+                                    Text(
+                                      category,
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: _saving
-                    ? null
-                    : (value) => setState(() => _category = value!),
-              ),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _description,
-                enabled: !_saving,
-                maxLength: 500,
-                minLines: 2,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  hintText: 'What did you spend on?',
-                  alignLabelWithHint: true,
-                ),
-                textCapitalization: TextCapitalization.sentences,
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Enter a description'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              Semantics(
-                button: true,
-                label: 'Expense date',
-                child: InkWell(
-                  onTap: _saving ? null : _chooseDate,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Date',
-                      suffixIcon: Icon(Icons.calendar_today_outlined),
                     ),
-                    child: Text(DateFormat('dd MMMM yyyy').format(_date)),
-                  ),
-                ),
+                ],
               ),
-              const SizedBox(height: 24),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+            ),
+            TextButton(
+              onPressed: _saving ? null : () => setState(() => _more = !_more),
+              child: Text(_more ? 'Less' : 'More'),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Today'),
+                  selected: DateUtils.isSameDay(_date, today),
+                  onSelected: _saving
+                      ? null
+                      : (_) => setState(() => _date = today),
+                ),
+                ChoiceChip(
+                  label: const Text('Yesterday'),
+                  selected: DateUtils.isSameDay(_date, yesterday),
+                  onSelected: _saving
+                      ? null
+                      : (_) => setState(() => _date = yesterday),
+                ),
+                ActionChip(
+                  label: Text(
+                    DateUtils.isSameDay(_date, today) ||
+                            DateUtils.isSameDay(_date, yesterday)
+                        ? 'Pick date'
+                        : DateFormat.yMMMd().format(_date),
                   ),
+                  onPressed: _saving ? null : _chooseDate,
                 ),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _submit,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          widget.expense == null
-                              ? Icons.add_rounded
-                              : Icons.check_rounded,
-                        ),
-                  label: _saving && widget.controller != null
-                      ? ListenableBuilder(
-                          listenable: widget.controller!,
-                          builder: (context, _) =>
-                              Text(widget.controller!.savingLabel),
-                        )
-                      : Text(
-                          _saving
-                              ? 'Saving…'
-                              : widget.expense == null
-                              ? 'Add Expense'
-                              : 'Save Changes',
-                        ),
-                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _description,
+              enabled: !_saving,
+              maxLength: 500,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                counterText: '',
               ),
-              const SizedBox(height: 16),
-              const Center(
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            const SizedBox(height: 16),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
-                  'Every expense counts towards better habits.',
-                  style: TextStyle(fontSize: 12, color: muted),
-                  textAlign: TextAlign.center,
+                  _error!,
+                  style: TextStyle(color: theme.colorScheme.error),
                 ),
               ),
-            ],
-          ),
+            FilledButton(
+              onPressed: _saving || _amountError(_amount.text) != null
+                  ? null
+                  : _submit,
+              child: _saving && widget.controller != null
+                  ? ListenableBuilder(
+                      listenable: widget.controller!,
+                      builder: (context, _) =>
+                          Text(widget.controller!.savingLabel),
+                    )
+                  : Text(
+                      _saving
+                          ? 'Saving…'
+                          : widget.expense == null
+                          ? 'Save expense'
+                          : 'Save changes',
+                    ),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  String? _amountError(String value) {
+    final amount = double.tryParse(value);
+    if (amount == null || !amount.isFinite || amount <= 0) {
+      return 'Enter an amount greater than zero';
+    }
+    if (amount > 9999999999.99) return 'Amount exceeds the supported limit';
+    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value)) {
+      return 'Use no more than 2 decimal places';
+    }
+    return null;
   }
 }

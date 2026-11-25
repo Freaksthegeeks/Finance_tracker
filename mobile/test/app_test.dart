@@ -41,6 +41,19 @@ class TestBackend {
           return http.Response('{"status":"ok","db_connected":true}', 200);
         }
         if (request.url.path.contains('/loans')) {
+          if (request.method == 'PUT') {
+            final loan = loans.firstWhere(
+              (e) => '${e['id']}' == request.url.pathSegments.last,
+            );
+            loan.addAll(jsonDecode(request.body) as Map<String, dynamic>);
+            return http.Response(jsonEncode(loan), 200);
+          }
+          if (request.method == 'DELETE') {
+            loans.removeWhere(
+              (e) => '${e['id']}' == request.url.pathSegments.last,
+            );
+            return http.Response('{"success":true}', 200);
+          }
           if (request.method == 'POST') {
             loans.add({
               ...jsonDecode(request.body) as Map<String, dynamic>,
@@ -123,6 +136,8 @@ Future<void> start(
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
@@ -131,6 +146,8 @@ Future<void> start(
       child: MediaQuery(
         data: MediaQueryData(
           size: size,
+          platformBrightness:
+              tester.binding.platformDispatcher.platformBrightness,
           textScaler: TextScaler.linear(textScale),
         ),
         child: FinanceTrackerApp(controller: backend.controller),
@@ -142,17 +159,25 @@ Future<void> start(
 
 Future<void> capture(WidgetTester tester, String name) async {
   if (!const bool.fromEnvironment('CAPTURE_SCREENSHOTS')) return;
-  final boundary = tester.renderObject<RenderRepaintBoundary>(
-    find.byKey(const ValueKey('capture')),
-  );
-  await tester.runAsync(() async {
-    final image = await boundary.toImage(pixelRatio: 2);
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    final file = File('build/screenshots/$name.png');
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes!.buffer.asUint8List());
-    image.dispose();
-  });
+  final previousShadows = debugDisableShadows;
+  debugDisableShadows = false;
+  await tester.pump();
+  try {
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('capture')),
+    );
+    await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 2);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      final file = File('build/screenshots/$name.png');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes!.buffer.asUint8List());
+      image.dispose();
+    });
+  } finally {
+    debugDisableShadows = previousShadows;
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -162,7 +187,7 @@ void main() {
     (tester) async {
       final backend = TestBackend();
       await start(tester, backend);
-      expect(find.text('Total Expenses'), findsOneWidget);
+      expect(find.textContaining('SPENT IN'), findsOneWidget);
       expect(find.text('Sign in'), findsNothing);
       expect(
         backend.requests.any((r) => r.url.path.contains('/auth')),
@@ -171,11 +196,12 @@ void main() {
       await capture(tester, 'dashboard');
       await tester.tap(find.byTooltip('Hide amounts'));
       await tester.pumpAndSettle();
-      expect(find.text('Spending chart hidden'), findsOneWidget);
       expect(find.text('••••••'), findsWidgets);
-      await tester.tap(find.text('All Expenses').last);
+      await tester.tap(find.text('Activity').last);
       await tester.pumpAndSettle();
       await capture(tester, 'history');
+      await tester.tap(find.text('All').first);
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.widgetWithText(TextField, 'Search expenses'),
         'Lunch',
@@ -191,69 +217,124 @@ void main() {
   testWidgets('validates and saves a new expense exactly once', (tester) async {
     final backend = TestBackend();
     await start(tester, backend);
-    await tester.tap(find.text('Add Expense').last);
+    await tester.tap(find.byTooltip('Add expense'));
     await tester.pumpAndSettle();
     await capture(tester, 'add_expense');
-    final save = find.widgetWithText(FilledButton, 'Add Expense');
+    final save = find.widgetWithText(FilledButton, 'Save expense');
     await tester.ensureVisible(save);
-    await tester.tap(save);
-    await tester.pumpAndSettle();
-    expect(find.text('Enter an amount greater than zero'), findsOneWidget);
-    expect(find.text('Enter a description'), findsOneWidget);
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), '250.50');
-    await tester.enterText(fields.at(1), 'New expense');
+    await tester.pump();
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();
     final writes = backend.requests.where((r) => r.method == 'POST');
     expect(writes.length, 1);
     expect(jsonDecode(writes.single.body)['amount'], 250.5);
-    expect(find.text('Expense added successfully'), findsOneWidget);
+    expect(jsonDecode(writes.single.body)['description'], '');
+    expect(find.text('Expense added'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('edits expense and requires confirmation before deletion', (
+  testWidgets('edits expense and defers deletion until Undo expires', (
     tester,
   ) async {
     final backend = TestBackend();
-    await start(tester, backend);
-    await tester.tap(find.text('All Expenses').last);
+    await start(tester, backend, size: const Size(390, 1000));
+    await tester.tap(find.text('Activity').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Expense actions').first);
+    await tester.tap(find.text('All').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Edit'));
+    final row = find.text('Lunch with friends').last;
+    await tester.ensureVisible(row);
+    await tester.tap(row);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).first, '1500');
-    final save = find.widgetWithText(FilledButton, 'Save Changes');
+    final save = find.widgetWithText(FilledButton, 'Save changes');
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();
     expect(backend.requests.where((r) => r.method == 'PUT').length, 1);
-    await tester.tap(find.byTooltip('Expense actions').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
-    await tester.pumpAndSettle();
-    expect(backend.requests.where((r) => r.method == 'DELETE'), isEmpty);
-    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
-    await tester.pumpAndSettle();
-    expect(backend.expenses.length, 2);
-    await tester.tap(find.byTooltip('Expense actions').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Delete'));
+    for (final undo in [true, false]) {
+      await tester.ensureVisible(row);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Delete'));
+      await tester.pumpAndSettle();
+      expect(backend.requests.where((r) => r.method == 'DELETE'), isEmpty);
+      if (undo) {
+        await tester.tap(find.text('Undo'));
+        await tester.pumpAndSettle();
+      }
+    }
+    await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
     expect(backend.requests.where((r) => r.method == 'DELETE').length, 1);
-    expect(backend.expenses.length, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final scale in [1.0, 1.5]) {
+    testWidgets('all screens fit 320px with text scale $scale', (tester) async {
+      await start(
+        tester,
+        TestBackend(),
+        size: const Size(320, 740),
+        textScale: scale,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Activity').last);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Previous month'), findsOneWidget);
+      expect(find.byTooltip('Next month'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await capture(tester, 'activity-narrow-$scale');
+      await tester.tap(find.text('Loans').last);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('New loan entry'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('dashboard fits a narrow mobile screen in dark mode', (
+    tester,
+  ) async {
+    final dispatcher = tester.binding.platformDispatcher;
+    dispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(dispatcher.clearPlatformBrightnessTestValue);
+    await start(tester, TestBackend(), size: const Size(320, 740));
+    await capture(tester, 'dashboard-dark');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('dashboard fits a narrow mobile screen', (tester) async {
-    await start(tester, TestBackend(), size: const Size(320, 740));
-    expect(tester.takeException(), isNull);
+  testWidgets('theme switch overrides the system and survives reopening', (
+    tester,
+  ) async {
+    final dispatcher = tester.binding.platformDispatcher;
+    dispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(dispatcher.clearPlatformBrightnessTestValue);
+    await start(tester, TestBackend());
+
+    final themeSwitch = find.byType(Switch);
+    Brightness brightness() => Theme.of(tester.element(themeSwitch)).brightness;
+    expect(tester.widget<Switch>(themeSwitch).value, isTrue);
+
+    await tester.tap(themeSwitch);
+    await tester.pumpAndSettle();
+    expect(brightness(), Brightness.light);
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    await start(tester, TestBackend());
+    expect(brightness(), Brightness.light);
+    expect(tester.widget<Switch>(themeSwitch).value, isFalse);
+    await tester.tap(themeSwitch);
+    await tester.pumpAndSettle();
+    expect(brightness(), Brightness.dark);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

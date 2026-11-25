@@ -101,6 +101,26 @@ class LoanRoutesTest(unittest.TestCase):
             'amount': 500.25, 'date': '2026-11-25', **overrides,
         })
 
+    def test_edit_loan_preserves_settlement_and_enforces_owner(self):
+        entry = dict(person='Alex', direction='lent', amount='40.50',
+                     date='2026-11-01', note='Lunch')
+        created = self.client.post('/api/loans', json={**entry, 'user_id': 'owner'})
+        self.assertEqual(created.status_code, 201)
+        path = f"/api/loans/{created.json()['id']}"
+        settled = self.client.patch(f'{path}?user_id=owner', json={'refunded': True})
+        self.assertEqual(settled.status_code, 200)
+        edited = {**entry, 'person': 'Sam', 'direction': 'borrowed'}
+        for owner, body, status in [
+            ('other', edited, 404),
+            ('owner', {**edited, 'amount': '0'}, 422),
+            ('owner', edited, 200),
+        ]:
+            result = self.client.request('PUT', f'{path}?user_id={owner}', json=body)
+            self.assertEqual(result.status_code, status)
+        self.assertEqual(result.json()['person'], 'Sam')
+        self.assertTrue(result.json()['refunded'])
+        self.assertEqual(result.json()['refunded_at'], settled.json()['refunded_at'])
+
     def test_refund_history_undo_and_expense_isolation(self):
         response = self.create()
         self.assertEqual(response.status_code, 201, response.text)

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Use the SDK's Material fonts so mobile layout tests measure real glyphs.
+// Load the bundled text and icon fonts so previews use the app's real glyphs.
 Future<void> testExecutable(Future<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   final configFile = File('.dart_tool/package_config.json');
@@ -28,6 +28,11 @@ Future<void> testExecutable(Future<void> Function() testMain) async {
     );
   }
   await textLoader.load();
+  final lucideLoader = FontLoader('packages/lucide_icons_flutter/Lucide');
+  lucideLoader.addFont(
+    rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'),
+  );
+  await lucideLoader.load();
   for (final (family, file) in [
     ('MaterialIcons', 'materialicons-regular.otf'),
   ]) {
@@ -41,5 +46,10 @@ Future<void> testExecutable(Future<void> Function() testMain) async {
     );
     await loader.load();
   }
+  final lucide = FontLoader('packages/lucide_icons_flutter/Lucide');
+  lucide.addFont(
+    rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'),
+  );
+  await lucide.load();
   await testMain();
 }
