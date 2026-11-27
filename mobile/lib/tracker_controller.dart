@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'cache.dart';
 import 'models.dart';
+import 'voice_recording.dart';
 
 enum BackendState { connecting, ready, unavailable }
 
@@ -14,6 +15,7 @@ enum SaveProgress { idle, connecting, saving }
 
 class TrackerController extends ChangeNotifier {
   final TrackerApi api;
+  final VoiceRecording Function() createVoiceRecording;
   final TrackerCache cache;
   final Duration connectionBudget;
   final Duration healthTimeout;
@@ -49,6 +51,7 @@ class TrackerController extends ChangeNotifier {
   TrackerController(
     this.api, {
     TrackerCache? cache,
+    this.createVoiceRecording = VoiceRecording.new,
     this.connectionBudget = const Duration(minutes: 2),
     this.healthTimeout = const Duration(seconds: 15),
     this.retryDelays = const [
@@ -339,6 +342,15 @@ class TrackerController extends ChangeNotifier {
 
   Future<void> save(ExpenseDraft draft, {int? id}) =>
       _write(() => api.save(draft, id: id), date: draft.date);
+  Future<void> updateExpenseFields(
+    int id,
+    Map<String, Object> fields, {
+    DateTime? date,
+  }) => _write(
+    () => api.updateExpenseFields(id, fields),
+    date: date,
+    successLabel: 'Expense saved',
+  );
   Future<void> delete(int id) => _write(() => api.delete(id));
   Future<Object> _readLoans() async {
     try {

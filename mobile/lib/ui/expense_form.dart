@@ -1,10 +1,15 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../api.dart';
+import '../expense_speech.dart';
 import '../models.dart';
 import '../tracker_controller.dart';
+import '../voice_recording.dart';
 import 'theme.dart';
 
 class ExpenseForm extends StatefulWidget {
@@ -27,7 +32,7 @@ class ExpenseForm extends StatefulWidget {
   State<ExpenseForm> createState() => _ExpenseFormState();
 }
 
-class _ExpenseFormState extends State<ExpenseForm> {
+class _ExpenseFormState extends State<ExpenseForm> with WidgetsBindingObserver {
   final _form = GlobalKey<FormState>();
   late final TextEditingController _amount;
   late final TextEditingController _description;
@@ -36,6 +41,15 @@ class _ExpenseFormState extends State<ExpenseForm> {
   bool _saving = false;
   bool _more = false;
   String? _error;
+  VoiceRecording? _voiceSession;
+  bool _transcribing = false;
+  bool _listening = false;
+  String? _voiceMessage;
+
+  bool get _supportsVoice =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.android &&
+      widget.controller != null;
 
   @override
   void initState() {
@@ -50,13 +64,92 @@ class _ExpenseFormState extends State<ExpenseForm> {
         widget.expense?.category ?? widget.initialCategory ?? categories.first;
     _amount.addListener(() => setState(() {}));
     _date = widget.expense?.date ?? DateUtils.dateOnly(DateTime.now());
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _voiceSession?.cancel();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _voiceSession?.cancel();
     _amount.dispose();
     _description.dispose();
     super.dispose();
+  }
+
+  Future<void> _listen() async {
+    if (_voiceSession != null || _saving) return;
+    FocusScope.of(context).unfocus();
+    final session = widget.controller!.createVoiceRecording();
+    setState(() {
+      _voiceSession = session;
+      _voiceMessage = null;
+    });
+    try {
+      final transcript = await session.listen(
+        widget.controller!.api,
+        onRecording: () {
+          if (mounted) setState(() => _listening = true);
+        },
+        onTranscribing: () {
+          if (mounted) {
+            setState(() {
+              _listening = false;
+              _transcribing = true;
+            });
+          }
+        },
+      );
+      if (!mounted ||
+          _voiceSession != session ||
+          session.isCancelled ||
+          transcript == null) {
+        return;
+      }
+      if (transcript.trim().isEmpty) {
+        setState(() => _voiceMessage = 'No speech detected. Try again.');
+        return;
+      }
+      final draft = parseExpenseSpeech(transcript);
+      final amount = draft.amount;
+      final validAmount = amount != null && _amountError(amount) == null;
+      setState(() {
+        if (validAmount) _amount.text = amount;
+        if (draft.note.isNotEmpty) {
+          _description.text = draft.note.characters.take(500).toString();
+        }
+        _voiceMessage = validAmount
+            ? 'Review the amount and note, then tap Save expense.'
+            : 'Amount not recognized. Check the amount and note before saving.';
+      });
+    } on ApiException catch (error) {
+      if (mounted && _voiceSession == session && !session.isCancelled) {
+        setState(() => _voiceMessage = error.message);
+      }
+    } on PlatformException catch (error) {
+      if (mounted && _voiceSession == session && !session.isCancelled) {
+        setState(() => _voiceMessage = error.message ?? 'Voice entry failed.');
+      }
+    } on Exception {
+      if (mounted && _voiceSession == session && !session.isCancelled) {
+        setState(() => _voiceMessage = 'Voice entry is unavailable.');
+      }
+    } finally {
+      if (mounted && _voiceSession == session) {
+        setState(() {
+          _voiceSession = null;
+          _listening = false;
+          _transcribing = false;
+        });
+      }
+    }
   }
 
   Future<void> _chooseDate() async {
@@ -70,7 +163,9 @@ class _ExpenseFormState extends State<ExpenseForm> {
   }
 
   Future<void> _submit() async {
-    if (_saving || !_form.currentState!.validate()) return;
+    if (_saving || _voiceSession != null || !_form.currentState!.validate()) {
+      return;
+    }
     FocusScope.of(context).unfocus();
     setState(() {
       _saving = true;
@@ -117,6 +212,7 @@ class _ExpenseFormState extends State<ExpenseForm> {
     final theme = Theme.of(context);
     final today = DateUtils.dateOnly(DateTime.now());
     final yesterday = DateTime(today.year, today.month, today.day - 1);
+    final voiceSession = _voiceSession;
     return PopScope(
       canPop: !_saving,
       child: Form(
@@ -128,7 +224,9 @@ class _ExpenseFormState extends State<ExpenseForm> {
               children: [
                 Expanded(
                   child: Text(
-                    widget.expense == null ? 'New expense' : 'Edit expense',
+                    widget.expense == null
+                        ? 'New expense'
+                        : 'Edit expense #${widget.expense!.id}',
                     style: theme.textTheme.titleLarge,
                   ),
                 ),
@@ -143,9 +241,45 @@ class _ExpenseFormState extends State<ExpenseForm> {
               ],
             ),
             const SizedBox(height: 16),
+            if (_supportsVoice && widget.expense == null) ...[
+              if (voiceSession == null)
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _listen,
+                  icon: const Icon(Icons.mic),
+                  label: const Text('Enter by voice'),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      _transcribing
+                          ? 'Transcribing…'
+                          : _listening
+                          ? 'Listening…'
+                          : 'Preparing microphone…',
+                    ),
+                    if (_listening)
+                      TextButton(
+                        onPressed: voiceSession.stop,
+                        child: const Text('Stop'),
+                      ),
+                    TextButton(
+                      onPressed: voiceSession.cancel,
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              const Text(
+                'Voice sends audio to the tracker server and requires a connection.',
+              ),
+              Text(_voiceMessage ?? 'Say “two hundred rupees for lunch”.'),
+              const SizedBox(height: 12),
+            ],
             TextFormField(
               controller: _amount,
-              enabled: !_saving,
+              enabled: !_saving && voiceSession == null,
               autofocus: widget.expense == null,
               textAlign: TextAlign.center,
               style: theme.textTheme.headlineLarge,
@@ -243,14 +377,16 @@ class _ExpenseFormState extends State<ExpenseForm> {
                         ? 'Pick date'
                         : DateFormat.yMMMd().format(_date),
                   ),
-                  onPressed: _saving ? null : _chooseDate,
+                  onPressed: _saving || voiceSession != null
+                      ? null
+                      : _chooseDate,
                 ),
               ],
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _description,
-              enabled: !_saving,
+              enabled: !_saving && voiceSession == null,
               maxLength: 500,
               decoration: const InputDecoration(
                 labelText: 'Note (optional)',
@@ -268,7 +404,10 @@ class _ExpenseFormState extends State<ExpenseForm> {
                 ),
               ),
             FilledButton(
-              onPressed: _saving || _amountError(_amount.text) != null
+              onPressed:
+                  _saving ||
+                      voiceSession != null ||
+                      _amountError(_amount.text) != null
                   ? null
                   : _submit,
               child: _saving && widget.controller != null

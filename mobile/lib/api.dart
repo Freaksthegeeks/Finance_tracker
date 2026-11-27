@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -24,6 +25,7 @@ class TrackerApi {
     String path, {
     Map<String, String>? query,
     Map<String, dynamic>? body,
+    Uint8List? audio,
     Duration timeout = const Duration(seconds: 60),
     Future<void>? abortTrigger,
   }) async {
@@ -33,7 +35,11 @@ class TrackerApi {
       uri,
       abortTrigger: abortTrigger,
     )..headers['Accept'] = 'application/json';
-    if (body != null) {
+    final readOnly = method == 'GET' || audio != null;
+    if (audio != null) {
+      request.headers['Content-Type'] = 'application/octet-stream';
+      request.bodyBytes = audio;
+    } else if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
@@ -46,15 +52,21 @@ class TrackerApi {
         payload = jsonDecode(response.body);
       } on FormatException {
         throw ApiException(
-          method == 'GET'
+          readOnly
               ? 'The server returned an unexpected response (${response.statusCode}). Please try again.'
               : 'The server returned an unexpected response. Refresh before retrying; the change may have been saved.',
         );
       }
+      if (audio != null &&
+          response.statusCode == 503 &&
+          payload is Map &&
+          payload['detail'] is String) {
+        throw ApiException(payload['detail'] as String);
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (response.statusCode >= 500) {
           throw ApiException(
-            method == 'GET'
+            readOnly
                 ? 'The server is temporarily unavailable. Please try again.'
                 : 'The server could not confirm the change. Refresh before retrying; it may have been saved.',
           );
@@ -69,17 +81,36 @@ class TrackerApi {
       return payload;
     } on TimeoutException {
       throw ApiException(
-        method == 'GET'
+        readOnly
             ? 'The server is taking too long to respond. Pull down to retry.'
             : 'The request timed out. Refresh your expenses before retrying; the change may have been saved.',
       );
     } on http.ClientException {
       throw ApiException(
-        method == 'GET'
+        readOnly
             ? 'Cannot reach the server. Check your connection and try again.'
             : 'Connection interrupted. Refresh before retrying; the change may have been saved.',
       );
     }
+  }
+
+  Future<String> transcribe(
+    Uint8List audio, {
+    required Future<void> abortTrigger,
+  }) async {
+    final payload = await _request(
+      'POST',
+      'voice/transcribe',
+      audio: audio,
+      timeout: const Duration(seconds: 30),
+      abortTrigger: abortTrigger,
+    );
+    if (payload is Map && payload['transcript'] is String) {
+      return payload['transcript'] as String;
+    }
+    throw const ApiException(
+      'Voice transcription returned an unexpected response.',
+    );
   }
 
   Future<bool> health({
@@ -125,6 +156,15 @@ class TrackerApi {
 
   Future<void> delete(int id) async {
     await _request('DELETE', 'expenses/$id', query: {'user_id': config.userId});
+  }
+
+  Future<void> updateExpenseFields(int id, Map<String, Object> fields) async {
+    await _request(
+      'PUT',
+      'expenses/$id',
+      query: {'user_id': config.userId},
+      body: fields,
+    );
   }
 
   void close() => _client.close();

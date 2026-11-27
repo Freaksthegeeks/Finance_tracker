@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -6,14 +7,51 @@ import 'package:finance_tracker/api.dart';
 import 'package:finance_tracker/config.dart';
 import 'package:finance_tracker/main.dart';
 import 'package:finance_tracker/tracker_controller.dart';
+import 'package:finance_tracker/voice_recording.dart';
+import 'package:record/record.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class TestRecorder implements AudioRecorder {
+  final _stream = StreamController<Uint8List>();
+
+  @override
+  Future<bool> hasPermission({bool request = true}) async => true;
+
+  @override
+  Future<Stream<Uint8List>> startStream(RecordConfig config) async {
+    expect(config.sampleRate, 16000);
+    expect(config.numChannels, 1);
+    expect(config.encoder, AudioEncoder.pcm16bits);
+    _stream.add(Uint8List.fromList([1, 0, 2, 0]));
+    return _stream.stream;
+  }
+
+  @override
+  Future<String?> stop() async {
+    await _stream.close();
+    return null;
+  }
+
+  @override
+  Future<void> cancel() => _stream.close();
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class TestBackend {
+  TestBackend({this.transcripts});
+  final Iterator<String>? transcripts;
+  bool voiceUnavailable = false;
   final requests = <http.Request>[];
   final loans = <Map<String, dynamic>>[];
   final expenses = <Map<String, dynamic>>[
@@ -37,6 +75,22 @@ class TestBackend {
       AppConfig('https://example.com'),
       client: MockClient((request) async {
         requests.add(request);
+        if (request.url.path.endsWith('/voice/transcribe')) {
+          expect(request.headers['content-type'], 'application/octet-stream');
+          expect(request.bodyBytes, [1, 0, 2, 0]);
+          if (voiceUnavailable) {
+            return http.Response(
+              '{"detail":"Voice transcription is unavailable. Try again."}',
+              503,
+            );
+          }
+          expect(transcripts!.moveNext(), isTrue);
+          return http.Response(
+            jsonEncode({'transcript': transcripts!.current}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
         if (request.url.path.endsWith('/health')) {
           return http.Response('{"status":"ok","db_connected":true}', 200);
         }
@@ -125,6 +179,7 @@ class TestBackend {
         );
       }),
     ),
+    createVoiceRecording: () => VoiceRecording(recorder: TestRecorder()),
   )..period = DateTime(2026, 11);
 }
 
@@ -237,6 +292,158 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('voice prefills an expense and waits for explicit save', (
+    tester,
+  ) async {
+    final backend = TestBackend(transcripts: ['₹200 for lunch.'].iterator);
+    await start(tester, backend, size: const Size(390, 1000));
+    await tester.tap(find.byTooltip('Add expense'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enter by voice'));
+    await tester.pumpAndSettle();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pumpAndSettle();
+    expect(
+      backend.requests.where((r) => r.url.path.endsWith('/voice/transcribe')),
+      isEmpty,
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    backend.voiceUnavailable = true;
+    await tester.tap(find.text('Enter by voice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Voice transcription is unavailable. Try again.'),
+      findsOneWidget,
+    );
+
+    backend.voiceUnavailable = false;
+    await tester.tap(find.text('Enter by voice'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('200'), findsOneWidget);
+    expect(find.text('lunch'), findsOneWidget);
+    expect(
+      backend.requests.where(
+        (request) =>
+            request.url.path.endsWith('/expenses') && request.method == 'POST',
+      ),
+      isEmpty,
+    );
+
+    final save = find.widgetWithText(FilledButton, 'Save expense');
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+
+    final write = backend.requests.singleWhere(
+      (request) =>
+          request.url.path.endsWith('/expenses') && request.method == 'POST',
+    );
+    final payload = jsonDecode(write.body);
+    expect(payload['amount'], 200);
+    expect(payload['description'], 'lunch');
+  });
+
+  testWidgets(
+    'voice assistant prompts, adds, edits by ID, and answers spending',
+    (tester) async {
+      const channel = MethodChannel('finance_tracker/expense_playback');
+      final turns = [
+        'add expense',
+        'two hundred',
+        'food and dining',
+        'today',
+        'Save.',
+        'edit the expense id two',
+        'category change',
+        'shopping',
+        'name of the expense change to groceries',
+        'date change to today',
+        'Save.',
+        'how much did i spend on shopping this month',
+        'analyse this month',
+      ].iterator;
+      final spoken = <String>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'speak') spoken.add(call.arguments as String);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      final backend = TestBackend(transcripts: turns);
+      await start(tester, backend, size: const Size(390, 1000));
+      await tester.tap(find.byTooltip('Voice expense assistant'));
+      await tester.pumpAndSettle();
+
+      Future<void> talk() async {
+        await tester.tap(find.widgetWithText(FilledButton, 'Push to talk'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Listening…'));
+        await tester.pumpAndSettle();
+      }
+
+      await talk();
+      expect(find.textContaining('What is the amount'), findsOneWidget);
+      await talk();
+      expect(find.textContaining('Which category?'), findsOneWidget);
+      await talk();
+      expect(find.textContaining('What date?'), findsOneWidget);
+      await talk();
+      expect(
+        backend.requests.where(
+          (r) => r.url.path.endsWith('/expenses') && r.method == 'POST',
+        ),
+        isEmpty,
+      );
+      await talk();
+      expect(
+        backend.requests.where(
+          (r) => r.url.path.endsWith('/expenses') && r.method == 'POST',
+        ),
+        hasLength(1),
+      );
+      expect(backend.expenses.last['amount'], 200);
+
+      await talk();
+      expect(find.textContaining('Expense ID 2. What'), findsOneWidget);
+      await talk();
+      expect(find.textContaining('Which category?'), findsOneWidget);
+      await talk();
+      await talk();
+      await talk();
+      expect(backend.requests.where((r) => r.method == 'PUT'), isEmpty);
+      await talk();
+      final edit = backend.requests.singleWhere((r) => r.method == 'PUT');
+      expect(edit.url.path, endsWith('/expenses/2'));
+      expect(jsonDecode(edit.body), {
+        'category': 'Shopping',
+        'description': 'groceries',
+        'date': backend.expenses.last['date'],
+      });
+      expect(backend.expenses[1]['amount'], 380);
+      await talk();
+      expect(
+        find.textContaining('380.00 in Shopping this month'),
+        findsOneWidget,
+      );
+      await talk();
+      expect(find.textContaining('Top categories:'), findsOneWidget);
+      expect(spoken.last, contains('Top categories:'));
+    },
+  );
 
   testWidgets('edits expense and defers deletion until Undo expires', (
     tester,

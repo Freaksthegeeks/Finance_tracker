@@ -77,6 +77,10 @@ xcuserdata/
 *.xcarchive/
 *.dSYM/
 
+# Downloaded speech model weights and caches, including legacy mobile downloads
+/backend/models/
+/mobile/models/
+
 # Packaged application artifacts
 *.apk
 *.aab
