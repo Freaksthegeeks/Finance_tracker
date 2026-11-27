@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source code
 COPY . .
+RUN python setup_voice_model.py
 
 EXPOSE 8000
 

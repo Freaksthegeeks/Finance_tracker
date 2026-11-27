@@ -11,11 +11,17 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
+if __package__:
+    from .voice import router as voice_router
+else:
+    from voice import router as voice_router
+
 load_dotenv()
 
 POSTGRES_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
 
 app = FastAPI(title="Expense Tracker API", version="1.0.0")
+app.include_router(voice_router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -15,6 +15,7 @@ A finance tracker with a React web frontend, a Flutter mobile app for Android an
 - Mobile navigation, pull-to-refresh, and foreground refresh every 15 seconds.
 - Mobile opens directly into the tracker without login or Google authentication.
 - Mobile caches expenses, loan entries, and the last 12 dashboard periods while connecting to the backend.
+- Android voice entry fills an expense draft or accepts expense assistant commands. Review and confirm changes before saving.
 
 ## Track borrowed and lent money
 
@@ -35,8 +36,8 @@ Balances include outstanding entries from all dates, regardless of the selected 
 
 ```text
 Finance_Tracker/
-├── backend/                 # FastAPI routes, PostgreSQL operations, and loan tests
-├── context/design system/   # Mobile design reference archive
+├── backend/                 # FastAPI, PostgreSQL, Whisper transcription, and tests
+├── context/                 # Mobile design reference and project file guide
 ├── frontend/                # React / Vite web app
 ├── mobile/
 │   ├── android/             # Android project
@@ -47,9 +48,12 @@ Finance_Tracker/
 │   └── tool/configure.dart  # Extracts PUBLIC_URL from the root .env
 ├── .env.example             # Environment configuration template
 ├── docker-compose.yml       # Backend and web frontend containers
+├── render.yaml              # Hosted backend and web frontend deployment
 ├── requirements.txt         # Backend dependencies
 └── README.md
 ```
+
+See the [project file guide](context/file/project-file-guide.md) for the folder map and the purpose of the Android, iOS, and deployment file formats.
 
 ## Configuration
 
@@ -93,6 +97,12 @@ The current backend falls back to its first user when an unknown ID is supplied,
 - **+ button:** opens an expense sheet on Home/Activity or a loan sheet on Loans. Tap an existing row to edit it. Expense categories use a one-tap grid and remember the last saved selection; notes are optional.
 
 Mobile initially uses the system's light/dark preference. The header's **Dark theme** switch overrides it and remembers your choice when you reopen the app. Swipe expense rows left to delete with Undo; swipe open loans left to settle with Undo. Changes wait until the snackbar's Undo window closes before being sent. If the app closes before that, the pending action is cancelled.
+
+### Android voice entry
+
+Open **Enter by voice** on the new expense form, or open the **Voice expense assistant**. The app sends up to 20 seconds of audio to the Python backend, which transcribes English with Whisper `base.en`. Voice input requires a connection to the tracker server. Assistant replies use an installed offline Android voice when available.
+
+Docker and Render provision the Whisper model during the backend build. For a local backend, run the model setup command below before using voice entry. Deploy the updated backend before distributing the Android app.
 
 ### Check and build
 
@@ -151,6 +161,7 @@ Activate the environment with `venv\Scripts\Activate.ps1` in PowerShell, or `sou
 
 ```sh
 python -m pip install -r requirements.txt
+python backend/setup_voice_model.py
 python -m uvicorn backend.main:app --reload --port 8000
 ```
 
@@ -158,6 +169,7 @@ PowerShell can also run the environment's Python directly without activation:
 
 ```powershell
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
+.\venv\Scripts\python.exe backend\setup_voice_model.py
 .\venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
 ```
 
@@ -186,10 +198,10 @@ From the repository root, with backend dependencies installed in the active Pyth
 
 ```sh
 python -m pip install httpx
-python -m unittest backend.test_loans -v
+python -m unittest backend.test_loans backend.test_voice -v
 ```
 
-These tests use an isolated in-memory SQLite adapter without contacting the configured PostgreSQL database. They check loan validation, profile scoping, refunds, repeated refund requests, undo, deletion, and expense isolation. PostgreSQL deployment still needs a configured database.
+Loan tests use an isolated in-memory SQLite adapter. Voice tests mock inference to check the upload and response contract without loading model weights. PostgreSQL deployment still needs a configured database.
 
 ### Enable borrowing and lending on an existing installation
 
@@ -202,6 +214,7 @@ For a Compose installation, run `docker compose up --build -d` from the reposito
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | GET | `/api/health` | Backend and database health |
+| POST | `/api/voice/transcribe` | Transcribe up to 20 seconds of raw 16 kHz mono 16-bit PCM and return a JSON transcript |
 | GET | `/api/dashboard/stats` | Statistics for `user_id`, `month`, and `year` |
 | GET | `/api/expenses` | Expenses for `user_id`, with optional month, year, and category filters |
 | POST | `/api/expenses` | Create an expense, including `user_id` in the body |

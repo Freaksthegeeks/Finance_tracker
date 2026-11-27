@@ -81,3 +81,20 @@ Screenshots are saved under `build/screenshots`, including Home, Activity, loan 
 - `lib/ui/`: mobile screens, form, theme, and interactive chart.
 
 The networking setup follows [Flutter's networking guide](https://docs.flutter.dev/cookbook/networking/fetch-data), including the Android release internet permission. See [Flutter's Android deployment guide](https://docs.flutter.dev/deployment/android) for production signing.
+## Android voice entry
+
+The expense form and expense assistant record up to 20 seconds of audio and
+send it to the configured tracker backend for English transcription. This
+requires a connection. Review the draft or changes before confirming a save.
+The assistant can still play replies through an installed offline Android voice.
+
+From the repository root, install the backend requirements and provision the
+Whisper model before starting a local backend:
+
+```sh
+python -m pip install -r backend/requirements.txt
+python backend/setup_voice_model.py
+```
+
+Docker and Render provision the model during their builds. Deploy the backend
+before distributing the updated Android app.

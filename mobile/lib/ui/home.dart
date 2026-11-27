@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +14,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'spending_chart.dart';
 import 'theme.dart';
+import 'voice_expense_assistant.dart';
 
 enum DateScope { all, month, year }
 
@@ -354,12 +356,33 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
             ],
           ),
         ),
-        floatingActionButton: FloatingActionButton(
-          tooltip: _tab == 2 ? 'New loan entry' : 'Add expense',
-          onPressed: _tab == 2
-              ? () => showLoanSheet(context, c)
-              : _expenseSheet,
-          child: const Icon(LucideIcons.plus),
+        floatingActionButton: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!kIsWeb &&
+                defaultTargetPlatform == TargetPlatform.android &&
+                _tab != 2) ...[
+              FloatingActionButton.small(
+                heroTag: 'expense-assistant',
+                tooltip: 'Voice expense assistant',
+                onPressed: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  showDragHandle: true,
+                  builder: (_) => VoiceExpenseAssistant(controller: c),
+                ),
+                child: const Icon(Icons.mic),
+              ),
+              const SizedBox(width: 12),
+            ],
+            FloatingActionButton(
+              tooltip: _tab == 2 ? 'New loan entry' : 'Add expense',
+              onPressed: _tab == 2
+                  ? () => showLoanSheet(context, c)
+                  : _expenseSheet,
+              child: const Icon(LucideIcons.plus),
+            ),
+          ],
         ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _tab,
@@ -775,7 +798,7 @@ class _TrackerHomeState extends State<TrackerHome> with WidgetsBindingObserver {
     onTap: () => _expenseSheet(e),
     leading: CategoryIcon(category: e.category),
     title: Text(e.description.trim().isEmpty ? e.category : e.description),
-    subtitle: Text(_tab == 0 ? _day(e.date) : e.category),
+    subtitle: Text('${_tab == 0 ? _day(e.date) : e.category} · ID ${e.id}'),
     trailing: Text(
       money(e.amount, c.hidden),
       style: Theme.of(context).textTheme.labelLarge,
